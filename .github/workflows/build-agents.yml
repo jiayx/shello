@@ -10,6 +10,7 @@ on:
     paths:
       - "agent/**"
       - "agent-zig/**"
+      - "agent-rust/**"
       - ".github/workflows/build-agents.yml"
   workflow_dispatch:
 
@@ -20,6 +21,7 @@ jobs:
     outputs:
       agent: ${{ steps.filter.outputs.agent }}
       agent_zig: ${{ steps.filter.outputs.agent_zig }}
+      agent_rust: ${{ steps.filter.outputs.agent_rust }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -33,6 +35,8 @@ jobs:
               - 'agent/**'
             agent_zig:
               - 'agent-zig/**'
+            agent_rust:
+              - 'agent-rust/**'
 
   build-go:
     name: Go ${{ matrix.goos }}-${{ matrix.goarch }}
@@ -173,17 +177,89 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  build-rust:
+    name: Rust ${{ matrix.id }}
+    needs: detect-changes
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v') ||
+      needs.detect-changes.outputs.agent_rust == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: darwin-amd64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            ext: ""
+            asset: ttys-agent-rust-darwin-amd64
+          - id: darwin-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            ext: ""
+            asset: ttys-agent-rust-darwin-arm64
+          - id: linux-amd64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+            asset: ttys-agent-rust-linux-amd64
+          - id: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            ext: ""
+            asset: ttys-agent-rust-linux-arm64
+          - id: windows-amd64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+            asset: ttys-agent-rust-windows-amd64.exe
+          - id: windows-arm64
+            runner: windows-2025
+            target: aarch64-pc-windows-msvc
+            ext: ".exe"
+            asset: ttys-agent-rust-windows-arm64.exe
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent-rust
+
+      - name: Build Rust agent
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          cd agent-rust
+          cargo build --release --target "${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/ttys-agent-rust${{ matrix.ext }}" "../dist/${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rust-${{ matrix.id }}
+          path: dist/*
+          if-no-files-found: error
+
   bundle-release:
     name: Bundle Release Assets
     runs-on: ubuntu-24.04
     needs:
       - build-go
       - build-zig
+      - build-rust
     if: |
       always() &&
       (
         needs.build-go.result == 'success' ||
-        needs.build-zig.result == 'success'
+        needs.build-zig.result == 'success' ||
+        needs.build-rust.result == 'success'
       )
     permissions:
       contents: write

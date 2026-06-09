@@ -9,4 +9,5 @@ coverage
 apps/web/public/downloads/local/
 .zig-cache/
 zig-out/
+agent-rust/target/
 .DS_Store

@@ -9,6 +9,7 @@ Anonymous shared terminal over Cloudflare Workers and Durable Objects.
 ## Components
 
 - `apps/web`: React + Vite frontend and Cloudflare Worker
+- `agent-rust`: Rust host agent
 - `agent`: Go host agent
 - `agent-zig`: Zig host agent
 - `scripts`: local development and bootstrap helpers
@@ -16,20 +17,22 @@ Anonymous shared terminal over Cloudflare Workers and Durable Objects.
 ## Current State
 
 - The web app can create a session, attach viewers, and bridge host/viewer websocket traffic through the Worker.
-- The Zig agent is the default implementation used by bootstrap downloads.
-- The Go agent remains available as a reference implementation and local development fallback.
+- The Rust agent is the default implementation used by bootstrap downloads.
+- The Go and Zig agents remain available as reference implementations and local development fallbacks.
 
 ## Repository Layout
 
 - `apps/web`: browser UI, Worker routes, Durable Object logic
+- `agent-rust/src`: Rust PTY, transport, terminal, and session flow
 - `agent/cmd/ttys-agent`: Go CLI entrypoint
 - `agent/internal`: Go PTY, websocket transport, platform handling, session flow
 - `agent-zig/src`: Zig PTY, transport, terminal, and session flow
-- `.github/workflows/build-agents.yml`: CI build matrix for Go and Zig release assets
+- `.github/workflows/build-agents.yml`: CI build matrix for Rust, Go, and Zig release assets
 
 ## Requirements
 
 - Node.js with `pnpm`
+- Rust stable toolchain for `agent-rust`
 - Go `1.24.2` or compatible toolchain
 - Zig `0.16.0` for `agent-zig`
 - A Cloudflare account for deployment
@@ -100,6 +103,29 @@ Flags:
 - `-session`: existing session ID when using an HTTP server URL
 - `-shell`: shell to launch
 
+## Rust Agent
+
+Build:
+
+```bash
+cd agent-rust
+cargo build --release
+```
+
+Run against a local server:
+
+```bash
+cd agent-rust
+cargo run -- -server http://localhost:5173
+```
+
+Attach to an existing session:
+
+```bash
+cd agent-rust
+cargo run -- -server http://localhost:5173 -session <session-id>
+```
+
 ## Zig Agent
 
 Build the default native target:
@@ -130,15 +156,15 @@ Notes:
 
 ## Local Bootstrap Assets
 
-Build a local Zig agent into the web download directory:
+Build a local Rust agent into the web download directory:
 
 ```bash
 ./scripts/build-local-agent.sh
 ```
 
-This writes the current machine's Zig agent binary to:
+This writes the current machine's Rust agent binary to:
 
-- `apps/web/public/downloads/local/ttys-agent-zig-<os>-<arch>[.exe]`
+- `apps/web/public/downloads/local/ttys-agent-rust-<os>-<arch>[.exe]`
 - `apps/web/public/downloads/local/checksums.txt`
 
 ## CI and Releases
@@ -149,6 +175,13 @@ GitHub Actions workflow:
 
 It builds:
 
+- Rust:
+  - `ttys-agent-rust-darwin-amd64`
+  - `ttys-agent-rust-darwin-arm64`
+  - `ttys-agent-rust-linux-amd64`
+  - `ttys-agent-rust-linux-arm64`
+  - `ttys-agent-rust-windows-amd64.exe`
+  - `ttys-agent-rust-windows-arm64.exe`
 - Go:
   - `ttys-agent-darwin-amd64`
   - `ttys-agent-darwin-arm64`
@@ -166,6 +199,6 @@ On `v*` tags, the workflow also publishes all assets plus `checksums.txt` to Git
 
 ## Status Guidance
 
-Bootstrap downloads use the Zig agent by default.
+Bootstrap downloads use the Rust agent by default.
 
-On Linux, the Zig release binary uses the portable transport by default.
+The Zig agent remains available as a fallback implementation.
