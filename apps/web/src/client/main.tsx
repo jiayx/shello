@@ -1,9 +1,14 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./app";
+import { ReplayDebug } from "./replay-debug";
 import "./styles.css";
 
 function Router() {
+  if (window.location.pathname === "/debug/replay") {
+    return <ReplayDebug />;
+  }
+
   if (!isKnownRoute(window.location.pathname)) {
     return <NotFound />;
   }

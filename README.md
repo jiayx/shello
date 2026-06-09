@@ -126,6 +126,17 @@ cd agent-rust
 cargo run -- -server http://localhost:5173 -session <session-id>
 ```
 
+Trace PTY output for terminal rendering debugging:
+
+```bash
+cd agent-rust
+TTYS_TRACE=/tmp/ttys-opencode.trace cargo run -- -server http://localhost:5173
+```
+
+Open `http://localhost:5173/debug/replay`, load the trace file, set the recorded host
+terminal columns and rows, and replay the raw bytes in xterm.js without websocket or
+Durable Object transport.
+
 ## Zig Agent
 
 Build the default native target:

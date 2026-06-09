@@ -17,6 +17,10 @@ type ControlRequest = {
   viewerId: string;
   leaseSeconds: number;
 };
+type TerminalSize = {
+  cols: number;
+  rows: number;
+};
 type SessionRecord = {
   state: SessionState;
   currentControllerId: string | null;
@@ -69,6 +73,7 @@ export class TTYSession extends DurableObject {
   private host: WebSocket | null = null;
   private viewers = new Map<WebSocket, ViewerInfo>();
   private hostConnected = false;
+  private hostTerminalSize: TerminalSize | null = null;
   private buffer: ArrayBuffer[] = [];
   private bufferBytes = 0;
   private record: SessionRecord = createInitialSessionRecord();
@@ -162,6 +167,9 @@ export class TTYSession extends DurableObject {
         payload: this.snapshot(server, role),
       }),
     );
+    if (role === "viewer" && !this.hostTerminalSize) {
+      this.sendHost(JSON.stringify({ type: "terminal.size.request", payload: null }));
+    }
     if (role === "viewer" && this.buffer.length > 0) {
       for (const chunk of this.buffer) {
         if (!this.sendSocket(server, chunk)) {
@@ -323,6 +331,11 @@ export class TTYSession extends DurableObject {
           await this.touchSession();
           return;
         }
+        if (frame?.type === "terminal.size") {
+          this.handleHostTerminalSize(frame.payload);
+          await this.touchSession();
+          return;
+        }
         return;
       }
 
@@ -371,6 +384,11 @@ export class TTYSession extends DurableObject {
       await this.touchSession();
       return;
     }
+    if (frame?.type === "terminal.size.request") {
+      this.sendHost(JSON.stringify({ type: "terminal.size.request", payload: null }));
+      await this.touchSession();
+      return;
+    }
   }
 
   private async handleClose(role: SessionRole, socket: WebSocket) {
@@ -396,6 +414,24 @@ export class TTYSession extends DurableObject {
       record.hostDisconnectDeadline = Date.now() + HOST_DISCONNECT_GRACE_MS;
       record.state = "ready";
     });
+    this.hostTerminalSize = null;
+    this.broadcastStatus();
+  }
+
+  private handleHostTerminalSize(payload: unknown) {
+    const size = normalizeTerminalSize(payload);
+    if (!size) {
+      return;
+    }
+
+    if (
+      this.hostTerminalSize?.cols === size.cols &&
+      this.hostTerminalSize?.rows === size.rows
+    ) {
+      return;
+    }
+
+    this.hostTerminalSize = size;
     this.broadcastStatus();
   }
 
@@ -532,6 +568,7 @@ export class TTYSession extends DurableObject {
       sessionExpiresAt: this.record.sessionExpiresAt,
       hostDisconnectDeadline: this.record.hostDisconnectDeadline,
       pendingRequestExpiresAt: this.record.pendingRequestExpiresAt,
+      terminalSize: this.hostTerminalSize,
     };
   }
 
@@ -757,6 +794,23 @@ function normalizeLeaseSeconds(payload: unknown, fallback = DEFAULT_CONTROL_LEAS
   }
 
   return Math.max(60, Math.min(Math.trunc(value), DEFAULT_CONTROL_LEASE_SECONDS));
+}
+
+function normalizeTerminalSize(payload: unknown): TerminalSize | null {
+  const size = payload as { cols?: unknown; rows?: unknown };
+  if (typeof size.cols !== "number" || typeof size.rows !== "number") {
+    return null;
+  }
+  if (!Number.isFinite(size.cols) || !Number.isFinite(size.rows)) {
+    return null;
+  }
+
+  const cols = Math.trunc(size.cols);
+  const rows = Math.trunc(size.rows);
+  if (cols < 1 || rows < 1 || cols > 1000 || rows > 1000) {
+    return null;
+  }
+  return { cols, rows };
 }
 
 function randomViewerToken() {

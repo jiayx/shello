@@ -18,6 +18,7 @@ mod app {
     use serde::Deserialize;
     use std::env;
     use std::fmt::{Display, Formatter};
+    use std::fs::OpenOptions;
     use std::io::{self, Read, Write};
     use std::net::TcpStream;
     use std::sync::mpsc::{self, Receiver, Sender};
@@ -31,6 +32,7 @@ mod app {
     const BINARY_TTY_OUTPUT: u8 = 0x01;
     const BINARY_STDIN: u8 = 0x02;
     const NESTED_AGENT_ENV: &str = "TTYS_AGENT_ACTIVE";
+    const TRACE_ENV: &str = "TTYS_TRACE";
     const MAX_HTTP_BODY: usize = 1024 * 1024;
 
     type Result<T> = std::result::Result<T, Error>;
@@ -180,6 +182,7 @@ mod app {
         if let Ok(size) = terminal_size() {
             pty.resize(size)?;
             modal.lock().unwrap().set_size(size)?;
+            let _ = out_tx.send(terminal_size_frame(size));
         }
 
         let ws_url = connect.host_websocket_url.clone();
@@ -197,7 +200,7 @@ mod app {
         let pty_sender = out_tx.clone();
         let pty_modal = Arc::clone(&modal);
         thread::spawn(move || {
-            let _ = pty_output_loop(pty_out, pty_sender, pty_modal);
+            let _ = pty_output_loop(pty_out, pty_sender, pty_modal, trace_writer());
             let _ = pty_done.send(());
         });
 
@@ -216,7 +219,7 @@ mod app {
         let resize_pty_tx = pty_tx.clone();
         let resize_modal = Arc::clone(&modal);
         thread::spawn(move || {
-            resize_loop(resize_pty_tx, resize_modal);
+            resize_loop(resize_pty_tx, out_tx, resize_modal);
         });
 
         let pty_writer = pty.try_clone()?;
@@ -511,6 +514,7 @@ mod app {
         mut pty: impl Read,
         sender: Sender<Outgoing>,
         modal: Arc<Mutex<ApprovalModal>>,
+        mut trace: Option<Box<dyn Write + Send>>,
     ) -> Result<()> {
         let mut buf = [0_u8; 4096];
         loop {
@@ -518,11 +522,29 @@ mod app {
             if n == 0 {
                 return Ok(());
             }
+            if let Some(trace) = trace.as_mut() {
+                let _ = trace.write_all(&buf[..n]);
+                let _ = trace.flush();
+            }
             modal.lock().unwrap().handle_pty_output(&buf[..n])?;
             let mut message = Vec::with_capacity(n + 1);
             message.push(BINARY_TTY_OUTPUT);
             message.extend_from_slice(&buf[..n]);
             let _ = sender.send(Outgoing::Binary(message));
+        }
+    }
+
+    fn trace_writer() -> Option<Box<dyn Write + Send>> {
+        let path = env::var_os(TRACE_ENV)?;
+        match OpenOptions::new().create(true).append(true).open(&path) {
+            Ok(file) => Some(Box::new(file)),
+            Err(error) => {
+                eprintln!(
+                    "ttys-agent-rust: failed to open TTYS_TRACE={}: {error}",
+                    path.to_string_lossy()
+                );
+                None
+            }
         }
     }
 
@@ -574,7 +596,11 @@ mod app {
         }
     }
 
-    fn resize_loop(pty: Sender<PtyInput>, modal: Arc<Mutex<ApprovalModal>>) {
+    fn resize_loop(
+        pty: Sender<PtyInput>,
+        sender: Sender<Outgoing>,
+        modal: Arc<Mutex<ApprovalModal>>,
+    ) {
         let mut last = terminal_size().ok();
         loop {
             thread::sleep(Duration::from_millis(250));
@@ -586,8 +612,13 @@ mod app {
             }
             last = Some(size);
             let _ = pty.send(PtyInput::Resize(size));
+            let _ = sender.send(terminal_size_frame(size));
             let _ = modal.lock().unwrap().set_size(size);
         }
+    }
+
+    fn terminal_size_frame(size: TerminalSize) -> Outgoing {
+        Outgoing::Text(terminal_size_text(size))
     }
 
     enum ModalInput {
@@ -643,6 +674,7 @@ mod app {
                 self.dismissed_viewer_id = None;
                 if self.active {
                     self.close()?;
+                    self.flush_buffered_output()?;
                 }
                 self.request = None;
                 return Ok(());
@@ -680,11 +712,13 @@ mod app {
                     b'y' | b'Y' => {
                         self.dismissed_viewer_id = Some(request.viewer_id.clone());
                         self.close()?;
+                        self.flush_buffered_output()?;
                         return Ok(ModalInput::Decision(ModalDecision::Approve(request)));
                     }
                     b'n' | b'N' | b'\r' | b'\n' | 0x03 | 0x1b => {
                         self.dismissed_viewer_id = Some(request.viewer_id.clone());
                         self.close()?;
+                        self.flush_buffered_output()?;
                         return Ok(ModalInput::Decision(ModalDecision::Reject(request)));
                     }
                     _ => {}
@@ -702,39 +736,16 @@ mod app {
                 .map(|value| (value.lease_seconds / 60).max(1))
                 .unwrap_or(0);
 
-            let width = self.size.cols.clamp(48, 80) as usize;
-            let box_width = (width.saturating_sub(4)).min(72).max(36);
-            let inner = box_width - 2;
-            let start_col = ((self.size.cols as usize).saturating_sub(box_width) / 2).max(1);
-            let start_row = ((self.size.rows as usize).saturating_sub(9) / 2).max(1);
-            let lines = [
-                center(inner, "Control Request"),
-                String::new(),
-                truncate(inner, &format!("Viewer {viewer} wants control.")),
-                truncate(inner, &format!("Lease: {lease} minutes")),
-                String::new(),
-                truncate(inner, "Press Y to approve or N to deny."),
-                String::new(),
-                truncate(inner, "Session output is paused until you decide."),
-            ];
-
-            print!("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x07");
-            print!("\x1b[{start_row};{start_col}H┌{}┐", "─".repeat(inner));
-            for (index, line) in lines.iter().enumerate() {
-                print!(
-                    "\x1b[{};{}H│{:<width$}│",
-                    start_row + 1 + index,
-                    start_col,
-                    line,
-                    width = inner
-                );
-            }
-            print!(
-                "\x1b[{};{}H└{}┘",
-                start_row + 1 + lines.len(),
-                start_col,
-                "─".repeat(inner)
+            let width = self.size.cols.max(1) as usize;
+            let row = self.size.rows.max(1);
+            let message = truncate(
+                width,
+                &format!(
+                    " ttys control request: viewer {viewer}, {lease}m lease. Press Y to approve or N to deny. "
+                ),
             );
+
+            print!("\x1b7\x1b[{row};1H\x1b[2K\x1b[7m{message:<width$}\x1b[0m\x07\x1b8");
             io::stdout().flush()?;
             Ok(())
         }
@@ -745,22 +756,20 @@ mod app {
             }
             self.active = false;
             self.request = None;
-            print!("\x1b[?25h\x1b[?1049l");
-            if !self.buffered.is_empty() {
-                io::stdout().write_all(&self.buffered)?;
-                self.buffered.clear();
-            }
+            let row = self.size.rows.max(1);
+            print!("\x1b7\x1b[{row};1H\x1b[2K\x1b8");
             io::stdout().flush()?;
             Ok(())
         }
-    }
 
-    fn center(width: usize, value: &str) -> String {
-        let value = truncate(width, value);
-        if value.len() >= width {
-            return value;
+        fn flush_buffered_output(&mut self) -> Result<()> {
+            if !self.buffered.is_empty() {
+                io::stdout().write_all(&self.buffered)?;
+                self.buffered.clear();
+                io::stdout().flush()?;
+            }
+            Ok(())
         }
-        format!("{}{}", " ".repeat((width - value.len()) / 2), value)
     }
 
     fn truncate(width: usize, value: &str) -> String {
@@ -787,6 +796,9 @@ mod app {
         loop {
             match connect_websocket(url) {
                 Ok(mut socket) => {
+                    if let Ok(size) = terminal_size() {
+                        let _ = socket.send(Message::Text(terminal_size_text(size).into()));
+                    }
                     delay = Duration::from_millis(250);
                     if !notified {
                         let _ = connected.send(());
@@ -847,7 +859,13 @@ mod app {
             }
 
             match socket.read() {
-                Ok(Message::Text(text)) => handle_text_frame(text.as_bytes(), status)?,
+                Ok(Message::Text(text)) => {
+                    if handle_text_frame(text.as_bytes(), status)? {
+                        if let Ok(size) = terminal_size() {
+                            socket.send(Message::Text(terminal_size_text(size).into()))?;
+                        }
+                    }
+                }
                 Ok(Message::Binary(payload)) => {
                     if payload.first() == Some(&BINARY_STDIN) {
                         let _ = pty.send(PtyInput::Bytes(payload[1..].to_vec()));
@@ -864,14 +882,23 @@ mod app {
         }
     }
 
-    fn handle_text_frame(payload: &[u8], status_tx: &Sender<Option<ControlRequest>>) -> Result<()> {
+    fn handle_text_frame(
+        payload: &[u8],
+        status_tx: &Sender<Option<ControlRequest>>,
+    ) -> Result<bool> {
         let Ok(envelope) = serde_json::from_slice::<Envelope>(payload) else {
-            return Ok(());
+            return Ok(false);
         };
         if envelope.kind == "session.status" {
             let status: SessionStatus = serde_json::from_value(envelope.payload)?;
             let _ = status_tx.send(status.pending_control_request);
+            return Ok(false);
         }
-        Ok(())
+        Ok(envelope.kind == "terminal.size.request")
+    }
+
+    fn terminal_size_text(size: TerminalSize) -> String {
+        let payload = serde_json::json!({"type":"terminal.size","payload":{"cols":size.cols,"rows":size.rows}});
+        payload.to_string()
     }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { mountTerminal, type TerminalController } from "./terminal";
+import { mountTerminal, type TerminalController, type TerminalSize } from "./terminal";
 import {
   BinaryMessageType,
   binarySocketDataToArrayBuffer,
@@ -32,6 +32,7 @@ type SessionStatus = {
   sessionExpiresAt: number | null;
   hostDisconnectDeadline: number | null;
   pendingRequestExpiresAt: number | null;
+  terminalSize: TerminalSize | null;
 };
 
 type PlatformTab = "macos" | "linux" | "windows";
@@ -153,6 +154,8 @@ export function App() {
     let cancelled = false;
     let activeSocket: WebSocket | null = null;
     let connectionGeneration = 0;
+    let terminalReady = false;
+    let pendingOutput: Uint8Array[] = [];
     type ConnectionAttempt = {
       isStale: () => boolean;
       ownsSocket: (ws: WebSocket) => boolean;
@@ -247,14 +250,14 @@ export function App() {
       }
 
       if (status.state === "closed") {
-        setSessionStatus(status);
+        applySessionStatus(status);
         setTransportState("closed");
         setConnecting(false);
         void scheduleOfflineStatusPoll(attempt);
         return;
       }
 
-      setSessionStatus(status);
+      applySessionStatus(status);
 
       const ws = new WebSocket(viewerSocketURL(currentSessionId));
       ws.binaryType = "arraybuffer";
@@ -277,7 +280,13 @@ export function App() {
         }
         const data = event.data;
         if (typeof data !== "string") {
-          void handleBinarySocketMessage(data, ws, terminal.current);
+          void handleBinarySocketMessage(data, ws, (payload) => {
+            if (!terminalReady) {
+              pendingOutput.push(payload.slice());
+              return;
+            }
+            terminal.current?.write(payload);
+          });
           return;
         }
 
@@ -341,7 +350,7 @@ export function App() {
           return;
         }
 
-        setSessionStatus(status);
+        applySessionStatus(status);
         if (status.state === "closed") {
           setTransportState("closed");
           void scheduleOfflineStatusPoll(attempt);
@@ -386,7 +395,7 @@ export function App() {
             return;
           }
 
-          setSessionStatus(status);
+          applySessionStatus(status);
           if (status.state !== "closed" || status.hostConnected) {
             void connectViewer();
             return;
@@ -434,10 +443,29 @@ export function App() {
         }
         previousStatusRef.current = payload;
         storeViewerToken(currentSessionId, payload.viewerToken);
-        setSessionStatus(payload);
+        applySessionStatus(payload);
         setRequestingControl(Boolean(payload.pendingControlRequest));
         return;
       }
+    }
+
+    function applySessionStatus(status: SessionStatus) {
+      setSessionStatus(status);
+      if (status.terminalSize) {
+        terminal.current?.resize(status.terminalSize);
+        flushPendingOutput();
+      }
+    }
+
+    function flushPendingOutput() {
+      terminalReady = true;
+      if (pendingOutput.length === 0) {
+        return;
+      }
+      for (const payload of pendingOutput) {
+        terminal.current?.write(payload);
+      }
+      pendingOutput = [];
     }
 
     void connectViewer();
@@ -809,10 +837,10 @@ export function App() {
             </div>
           </aside>
 
-          <section className="min-w-0 rounded-3xl border border-white/10 bg-black/50 p-3 shadow-2xl shadow-black/40 lg:sticky lg:top-6 lg:self-start">
+          <section className="min-w-0 rounded-3xl border border-white/10 bg-black/50 p-3 shadow-2xl shadow-black/40">
             <div
               ref={terminalRef}
-              className="min-w-0 h-[70vh] min-h-96 overflow-hidden rounded-2xl border border-white/10 bg-[#111111] lg:h-[calc(100vh-8rem)]"
+              className="h-[calc(100vh-9rem)] min-h-96 overflow-hidden rounded-2xl border border-white/10 bg-[#111111]"
             />
           </section>
         </div>
@@ -824,7 +852,7 @@ export function App() {
 async function handleBinarySocketMessage(
   data: unknown,
   ws: WebSocket,
-  terminal: TerminalController | null,
+  handleTtyOutput: (payload: Uint8Array) => void,
 ) {
   const buffer = await binarySocketDataToArrayBuffer(data);
   if (!buffer) {
@@ -832,10 +860,10 @@ async function handleBinarySocketMessage(
     return;
   }
 
-  handleBinaryMessage(buffer, terminal);
+  handleBinaryMessage(buffer, handleTtyOutput);
 }
 
-function handleBinaryMessage(buffer: ArrayBuffer, terminal: TerminalController | null) {
+function handleBinaryMessage(buffer: ArrayBuffer, handleTtyOutput: (payload: Uint8Array) => void) {
   const bytes = new Uint8Array(buffer);
   if (bytes.length === 0) {
     return;
@@ -843,7 +871,7 @@ function handleBinaryMessage(buffer: ArrayBuffer, terminal: TerminalController |
 
   switch (bytes[0]) {
     case BinaryMessageType.ttyOutput:
-      terminal?.write(bytes.subarray(1));
+      handleTtyOutput(bytes.subarray(1));
       return;
     default:
       return;

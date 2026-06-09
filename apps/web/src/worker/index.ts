@@ -173,11 +173,19 @@ function bootstrapBinaryBaseURL(url: URL, env: Env) {
     return env.BOOTSTRAP_BINARY_BASE_URL;
   }
 
+  if (isLocalhost(url.hostname)) {
+    return `${url.origin}/downloads/local`;
+  }
+
   if (env.BOOTSTRAP_GITHUB_REPOSITORY) {
     return `${url.origin}/downloads/release`;
   }
 
   return `${url.origin}/downloads/local`;
+}
+
+function isLocalhost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
 function bootstrapChecksumsURL(url: URL, env: Env) {
