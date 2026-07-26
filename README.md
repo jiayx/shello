@@ -4,133 +4,223 @@
 
 <h1 align="center">ttys</h1>
 
-Anonymous shared terminal over Cloudflare Workers and Durable Objects.
+Share a local terminal from a browser-friendly link, without opening an inbound port.
+The host runs one Rust Agent; Cloudflare Workers and a Durable Object broker the
+browser and host WebSocket connections.
 
-## Components
+## What is in this repository
 
-- `apps/web`: React + Vite frontend and Cloudflare Worker
-- `agent`: Rust host agent for macOS, Linux, and Windows
-- `scripts`: local development and bootstrap helpers
+- <code>apps/web</code>: React + Vite frontend and Cloudflare Worker
+- <code>agent</code>: Rust host agent for macOS, Linux, and Windows
+- <code>scripts</code>: local development and bootstrap helpers
 
-The repository has one supported host-agent implementation. It creates and attaches
-sessions, runs a local shell in a PTY, reconnects the host websocket, batches terminal
-output, synchronizes terminal size, and asks the host before granting remote control.
+There is one supported host-agent implementation. It creates or attaches to a session,
+runs a local shell in a PTY, reconnects after transient network failures, batches
+terminal output, synchronizes terminal metadata, and requires a local decision before
+a viewer can write to the shell.
 
-## Terminal behavior and browser compatibility
+## Quick start
 
-The host PTY is the source of truth for terminal dimensions. This preserves full-screen
-programs, line wrapping, and terminal state for every viewer: a viewer's browser never
-resizes the host shell. The web client instead scales the rendered terminal to the
-available container and observes container, browser-window, and mobile visual-viewport
-changes so that split views and virtual keyboards do not crop the terminal.
+Run the web application locally:
 
-The client uses xterm.js and targets current Chrome, Edge, Firefox, and Safari releases.
-It keeps terminal output intact while waiting briefly for the host's dimensions, then
-uses xterm's safe default size rather than indefinitely buffering output. Input is
-chunked before it crosses the websocket and paused when the browser send buffer is full,
-which prevents a large paste from disconnecting a slow or reconnecting host.
+~~~bash
+pnpm install
+pnpm dev
+~~~
+
+In another terminal, start an Agent:
+
+~~~bash
+./scripts/start.sh http://localhost:5173
+~~~
+
+The Agent prints a viewer URL. Opening it lets a viewer observe the terminal. A viewer
+must request control, and the host must approve it locally before keystrokes are
+forwarded.
+
+For a deployed instance, run the Agent from the browser bootstrap page:
+
+~~~bash
+curl -fsSL https://your-ttys.example/start | sh
+~~~
+
+The bootstrap script selects the matching release binary, verifies it against
+<code>checksums.txt</code>, then runs it attached to the current terminal. Windows users
+can use <code>/start.ps1</code> from PowerShell. See [the release guide](docs/releasing.md)
+for the published asset names and deployment configuration.
+
+## How it works
+
+~~~mermaid
+flowchart LR
+  H["Host terminal"] <--> A["Rust Agent<br/>PTY + local approval"]
+  A <--> D["Durable Object<br/>session state"]
+  D <--> V["Viewer browser<br/>xterm.js"]
+  W["Worker<br/>API + bootstrap"] --> D
+  W --> R["GitHub Release<br/>signed-by-checksum assets"]
+~~~
+
+The Agent opens an outbound WebSocket and owns the real shell and PTY. The Durable
+Object keeps the session lifecycle, WebSocket membership, control lease, and a bounded
+output replay buffer. The browser renders the stream and sends input only while it owns
+the remote-control lease. More detail is in [the architecture guide](docs/architecture.md).
+
+## Terminal behavior and compatibility
+
+The host PTY is the source of truth for terminal dimensions. A viewer never resizes the
+host shell, which preserves full-screen programs, line wrapping, and terminal state
+across viewers. The web client scales its rendered xterm.js terminal to the available
+container and reacts to container, browser-window, and mobile visual-viewport changes.
+
+Current Chrome, Edge, Firefox, and Safari releases are supported. The client briefly
+stages output until host dimensions arrive, then falls back to a safe terminal size
+instead of stalling forever. Browser input is chunked and back-pressured, so a large
+paste does not overwhelm a slow or reconnecting host.
 
 The Agent publishes its PTY profile to the session. Unix hosts use standard terminal
-behavior; Windows hosts announce ConPTY so xterm.js can use its Windows wrapping and
-scrollback compatibility rules. The underlying shell, fonts, and browser remain
-responsible for the exact glyph coverage of CJK and emoji content.
+behavior; Windows hosts announce ConPTY so xterm.js can apply its Windows wrapping and
+scrollback behavior. The shell, installed fonts, and browser still determine exact CJK
+and emoji glyph coverage.
+
+## Security model
+
+ttys is designed for deliberate, temporary sharing—not as a multi-user access-control
+system. Anyone who has a live viewer link can observe the terminal. Treat that link as
+a secret, close the session when the task ends, and do not expose credentials or
+production consoles unless that risk is acceptable.
+
+Remote input is disabled by default. Each control request is surfaced in the host's
+real terminal, where <code>Y</code> approves it and <code>N</code>, Return, Ctrl-C, or
+Escape rejects it. Approval pauses remote delivery while the prompt is active, keeping
+host interaction and the decision visible. ttys does not add end-to-end encryption or
+identity-based authorization on top of the deployment's HTTPS and Cloudflare access
+controls.
 
 ## Requirements
 
-- Node.js with `pnpm`
+- Node.js with <code>pnpm</code>
 - Rust stable toolchain
 - A Cloudflare account for deployment
 
-## Web Development
+## Web development
 
 Install dependencies and start the local web app:
 
-```bash
+~~~bash
 pnpm install
 pnpm dev
-```
+~~~
 
 Build or deploy the Worker:
 
-```bash
+~~~bash
 pnpm build
 pnpm deploy
-```
+~~~
+
+The Worker needs a Durable Object binding. The included
+[<code>wrangler.jsonc</code>](apps/web/wrangler.jsonc) configures the production
+bootstrap to serve assets from the <code>jiayx/ttys</code> GitHub release. Set
+<code>BOOTSTRAP_BINARY_BASE_URL</code> and <code>BOOTSTRAP_CHECKSUMS_URL</code> to use
+another trusted asset location, or set <code>BOOTSTRAP_GITHUB_REPOSITORY</code> for
+another GitHub repository.
 
 ## Host Agent
 
 Build and test:
 
-```bash
+~~~bash
 cd agent
-cargo test --release --all-targets
-cargo build --release
-```
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --release --all-targets
+cargo build --locked --release
+~~~
 
 Start a new local session:
 
-```bash
+~~~bash
 ./scripts/start.sh http://localhost:5173
-```
+~~~
 
 Attach to an existing session:
 
-```bash
+~~~bash
 ./scripts/start.sh http://localhost:5173 <session-id>
-```
+~~~
 
 The equivalent PowerShell entrypoint is:
 
-```powershell
+~~~powershell
 ./scripts/start.ps1 -Server http://localhost:5173
-```
+~~~
 
 You can also invoke Cargo directly:
 
-```bash
+~~~bash
 cd agent
 cargo run -- -server http://localhost:5173
 cargo run -- -server http://localhost:5173 -session <session-id>
-```
+~~~
 
 Flags:
 
-- `-server`: HTTP(S) base URL or direct `ws(s)` host websocket URL
-- `-session`: existing session ID when using an HTTP(S) server URL
-- `-shell`: shell executable to launch
+- <code>-server</code>: HTTP(S) base URL or direct <code>ws(s)</code> host websocket URL
+- <code>-session</code>: existing <code>xxx-xxx</code> session ID; valid only with an
+  HTTP(S) server URL
+- <code>-shell</code>: shell executable to launch
+
+With an HTTP(S) server URL, omitting <code>-session</code> creates a new session. A
+direct WebSocket URL already names the host endpoint and therefore cannot be combined
+with <code>-session</code>. On Unix, the default shell comes from <code>$SHELL</code>
+(falling back to <code>/bin/sh</code>); on Windows the Agent prefers PowerShell 7,
+Windows PowerShell, then <code>cmd.exe</code>.
 
 For terminal-rendering diagnostics, record raw PTY output with:
 
-```bash
+~~~bash
 cd agent
 TTYS_TRACE=/tmp/ttys.trace cargo run -- -server http://localhost:5173
-```
+~~~
 
-Then open `http://localhost:5173/debug/replay` and load the trace to replay it in
-xterm.js without the websocket or Durable Object transport.
+Then open <code>http://localhost:5173/debug/replay</code> and load the trace to replay
+it in xterm.js without the WebSocket or Durable Object transport.
 
-## Local Bootstrap Assets
+## Local bootstrap assets
 
-Build the current machine's agent binary into the web download directory:
+Build the current machine's Agent binary into the web download directory:
 
-```bash
+~~~bash
 ./scripts/build-local-agent.sh
-```
+~~~
 
 This produces:
 
-- `apps/web/public/downloads/local/ttys-agent-<os>-<arch>[.exe]`
-- `apps/web/public/downloads/local/checksums.txt`
+- <code>apps/web/public/downloads/local/ttys-agent-&lt;os&gt;-&lt;arch&gt;[.exe]</code>
+- <code>apps/web/public/downloads/local/checksums.txt</code>
 
-## CI and Releases
+## CI and releases
 
-`.github/workflows/build-agents.yml` tests native targets and produces release assets for:
+[<code>.github/workflows/build-agents.yml</code>](.github/workflows/build-agents.yml)
+is intentionally Agent-only: it runs when <code>agent/**</code> or the workflow
+changes. On pull requests and updates to <code>main</code>, it performs the Rust quality
+gate on Ubuntu and native lint/test checks on macOS ARM64 and Windows AMD64. It then
+builds the six delivery targets:
 
-- `ttys-agent-darwin-amd64`
-- `ttys-agent-darwin-arm64`
-- `ttys-agent-linux-amd64`
-- `ttys-agent-linux-arm64`
-- `ttys-agent-windows-amd64.exe`
-- `ttys-agent-windows-arm64.exe`
+- <code>ttys-agent-darwin-amd64</code>
+- <code>ttys-agent-darwin-arm64</code>
+- <code>ttys-agent-linux-amd64</code>
+- <code>ttys-agent-linux-arm64</code>
+- <code>ttys-agent-windows-amd64.exe</code>
+- <code>ttys-agent-windows-arm64.exe</code>
 
-On `v*` tags, it publishes those assets and `checksums.txt` to the GitHub release.
+Pushing a <code>v*</code> tag additionally bundles those binaries, generates
+<code>checksums.txt</code>, and publishes the GitHub Release. Follow
+[the release guide](docs/releasing.md) for the versioning and verification checklist.
+
+## Documentation
+
+- [Architecture and runtime behavior](docs/architecture.md)
+- [Release process](docs/releasing.md)
+- [Agent reference](agent/README.md)
+- [Change log](CHANGELOG.md)
