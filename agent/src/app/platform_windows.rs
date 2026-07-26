@@ -306,7 +306,8 @@ impl PipePair {
 
 struct AttributeList {
     list: LPPROC_THREAD_ATTRIBUTE_LIST,
-    buffer: Vec<u8>,
+    // The attribute list is stored inside this allocation; retain it until the list is deleted.
+    _buffer: Vec<u8>,
 }
 
 impl AttributeList {
@@ -330,7 +331,10 @@ impl AttributeList {
         {
             return Err(last_error("UpdateProcThreadAttribute failed"));
         }
-        Ok(Self { list, buffer })
+        Ok(Self {
+            list,
+            _buffer: buffer,
+        })
     }
 
     unsafe fn close(&mut self) {
