@@ -51,7 +51,7 @@ Show the embedded Agent version:
 
 ~~~bash
 cargo run -- --version
-# ttys-agent 0.2.1
+# ttys-agent 0.2.2
 ~~~
 
 The Agent also prints its version as the first line of a normal startup. Release

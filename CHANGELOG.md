@@ -4,10 +4,22 @@ All notable user-visible changes are documented here.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-26
+
+### Added
+
+- Added Rustls-based portable Linux assets for AMD64 and ARM64. The bootstrap
+  verifies the standard binary first and automatically falls back to the matching
+  portable asset when the host cannot load it.
+- Added packaged-binary CLI integration tests alongside responsibility-local unit
+  tests for both TLS configurations.
+
 ### Changed
 
-- Linux releases now prefer a sub-1 MiB system-TLS Agent and provide a verified Rustls
-  portable fallback for hosts without a compatible TLS runtime.
+- Linux releases now prefer system TLS, with CI enforcing a 1 MiB maximum for the
+  standard AMD64 and ARM64 binaries.
+- Reorganized the Agent into focused CLI, connection, protocol, terminal, and
+  transport modules while keeping startup orchestration in <code>main.rs</code>.
 
 ## [0.2.1] - 2026-07-26
 
