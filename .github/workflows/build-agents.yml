@@ -84,6 +84,10 @@ jobs:
     needs:
       - quality
       - native-test
+    # Branches validate the Agent; only an immutable version tag builds
+    # distributable binaries. This avoids a duplicated build matrix when main
+    # and its release tag are pushed together.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
