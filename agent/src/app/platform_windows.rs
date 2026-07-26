@@ -47,7 +47,7 @@ pub fn default_shell() -> String {
 pub fn terminal_size() -> Result<TerminalSize> {
     unsafe {
         let output = GetStdHandle(STD_OUTPUT_HANDLE);
-        if output == INVALID_HANDLE_VALUE || output == 0 {
+        if output == INVALID_HANDLE_VALUE || output.is_null() {
             return Err(last_error("GetStdHandle stdout failed"));
         }
         let mut info: CONSOLE_SCREEN_BUFFER_INFO = zeroed();
@@ -242,7 +242,7 @@ impl RawTerminal {
             SetConsoleCP(UTF8_CODE_PAGE);
             SetConsoleOutputCP(UTF8_CODE_PAGE);
             let input = GetStdHandle(STD_INPUT_HANDLE);
-            if input == INVALID_HANDLE_VALUE || input == 0 {
+            if input == INVALID_HANDLE_VALUE || input.is_null() {
                 return Err(last_error("GetStdHandle stdin failed"));
             }
             let mut input_mode = 0;
@@ -259,7 +259,7 @@ impl RawTerminal {
             let mut output_mode = 0;
             let mut output_active = false;
             if output != INVALID_HANDLE_VALUE
-                && output != 0
+                && !output.is_null()
                 && GetConsoleMode(output, &mut output_mode) != 0
             {
                 let vt = output_mode | ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
@@ -295,8 +295,8 @@ struct PipePair {
 
 impl PipePair {
     unsafe fn new() -> Result<Self> {
-        let mut read = 0;
-        let mut write = 0;
+        let mut read = null_mut();
+        let mut write = null_mut();
         if CreatePipe(&mut read, &mut write, null(), 0) == 0 {
             return Err(last_error("CreatePipe failed"));
         }
