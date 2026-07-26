@@ -7,14 +7,17 @@ Wrangler.
 ## Versioning
 
 The Agent package version in <code>agent/Cargo.toml</code> and the Git tag use the same
-semantic version, with a <code>v</code> prefix on the tag. For this release:
+semantic version, with a <code>v</code> prefix on the tag:
 
 ~~~text
-agent/Cargo.toml  0.2.2
-Git tag           v0.2.2
+agent/Cargo.toml  <version>
+Git tag           v<version>
 ~~~
 
-Record user-visible changes in <code>CHANGELOG.md</code> before creating the tag.
+The release script creates a draft from commits since the latest version tag. Commit
+subjects are only source material: rewrite them into user-visible
+<code>Added</code>, <code>Changed</code>, <code>Fixed</code>,
+<code>Removed</code>, or <code>Security</code> entries before publishing.
 
 ## Pre-release checklist
 
@@ -36,16 +39,29 @@ The working tree should contain only the intentional release changes. Verify tha
 bootstrap configuration in <code>apps/web/wrangler.jsonc</code> points to the repository
 whose release assets will be served.
 
-## Publish flow
+## Prepare and publish
 
-Commit the version and documentation changes, then create and push an annotated tag:
+Prepare the next version:
 
 ~~~bash
-git add README.md CHANGELOG.md docs agent/Cargo.toml agent/Cargo.lock
-git commit -m "release: v0.2.2"
-git tag -a v0.2.2 -m "v0.2.2"
-git push origin main --follow-tags
+./scripts/release.sh prepare 0.2.3
 ~~~
+
+This updates <code>agent/Cargo.toml</code>, <code>agent/Cargo.lock</code>, and the
+Agent README, then inserts an editable section in <code>CHANGELOG.md</code>. Replace
+the TODO with concise user-visible changes and remove the
+<code>release-draft</code> comment.
+
+Publish after reviewing the resulting diff:
+
+~~~bash
+./scripts/release.sh publish 0.2.3
+~~~
+
+The publish command rejects unrelated working-tree changes and unfinished CHANGELOG
+drafts. It tests both TLS feature sets, creates the release commit and annotated tag,
+then pushes <code>main</code> and the tag. For a non-interactive invocation, run
+<code>./scripts/release.sh publish 0.2.3 --yes</code>.
 
 The <code>v*</code> tag triggers
 <code>.github/workflows/build-agents.yml</code>. The workflow:
@@ -53,7 +69,8 @@ The <code>v*</code> tag triggers
 1. runs formatting, clippy, and release tests on Ubuntu;
 2. runs native clippy and tests on macOS ARM64 and Windows AMD64;
 3. builds six standard target binaries plus two portable Rustls Linux fallbacks; and
-4. generates <code>checksums.txt</code> and publishes the GitHub Release.
+4. extracts the matching CHANGELOG section, generates <code>checksums.txt</code>,
+   creates the GitHub Release, and uploads every binary.
 
 Pull requests run only the first two steps. Direct <code>main</code> pushes do not
 trigger this workflow, so a paired <code>main</code> + tag push creates exactly one

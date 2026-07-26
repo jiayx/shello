@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "agent/**"
+      - "scripts/release*.sh"
+      - "CHANGELOG.md"
       - ".github/workflows/build-agents.yml"
   push:
     tags:
@@ -52,6 +54,15 @@ jobs:
           set -euo pipefail
           cargo clippy --locked --no-default-features --features rustls-tls --all-targets -- -D warnings
           cargo test --locked --no-default-features --features rustls-tls --release --all-targets
+
+      - name: Check release tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh -n scripts/release.sh
+          sh -n scripts/release-notes.sh
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' agent/Cargo.toml | head -n 1)"
+          ./scripts/release-notes.sh "$version" >/dev/null
 
   native-test:
     name: Native tests ${{ matrix.id }}
@@ -182,10 +193,16 @@ jobs:
       contents: write
 
     steps:
+      - uses: actions/checkout@v6
+
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
+
+      - name: Generate release notes
+        shell: bash
+        run: ./scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > release-notes.md
 
       - name: Generate checksums
         shell: bash
@@ -203,5 +220,6 @@ jobs:
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v3
         with:
+          body_path: release-notes.md
           files: dist/*
-          generate_release_notes: true
+          fail_on_unmatched_files: true

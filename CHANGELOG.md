@@ -4,6 +4,16 @@ All notable user-visible changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added a two-stage release script that prepares an editable CHANGELOG draft,
+  validates both TLS configurations, and publishes the release commit and tag.
+
+### Changed
+
+- Release notes are now taken from the matching reviewed CHANGELOG section instead
+  of being generated from commit titles.
+
 ## [0.2.2] - 2026-07-26
 
 ### Added
