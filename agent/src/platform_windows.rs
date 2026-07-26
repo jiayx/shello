@@ -1,4 +1,4 @@
-use super::{Error, Result, NESTED_AGENT_ENV};
+use super::{Error, Result};
 use std::ffi::c_void;
 use std::io::{self, Read, Write};
 use std::mem::{size_of, zeroed};
@@ -21,6 +21,8 @@ use windows_sys::Win32::System::Threading::{
     EXTENDED_STARTUPINFO_PRESENT, INFINITE, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
     STARTUPINFOEXW,
 };
+
+const NESTED_AGENT_ENV: &str = "TTYS_AGENT_ACTIVE";
 
 const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x0002_0016;
 const UTF8_CODE_PAGE: u32 = 65001;

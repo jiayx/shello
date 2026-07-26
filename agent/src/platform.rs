@@ -1,8 +1,10 @@
-use super::{Error, Result, NESTED_AGENT_ENV};
+use super::{Error, Result};
 use std::env;
 use std::ffi::CString;
 use std::io::{self, Read, Write};
 use std::os::fd::RawFd;
+
+const NESTED_AGENT_ENV: &str = "TTYS_AGENT_ACTIVE";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TerminalSize {
