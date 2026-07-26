@@ -15,9 +15,75 @@ on:
       - ".github/workflows/build-agents.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
 jobs:
+  quality:
+    name: Rust quality
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+
+      - name: Check formatting, lints, and tests
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --release --all-targets
+
+  native-test:
+    name: Native tests ${{ matrix.id }}
+    needs: quality
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: darwin-arm64
+            runner: macos-15
+          - id: windows-amd64
+            runner: windows-2025
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+
+      - name: Check native lints and tests
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --release --all-targets
+
   build-agent:
     name: Rust ${{ matrix.id }}
+    needs:
+      - quality
+      - native-test
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -28,37 +94,31 @@ jobs:
             target: x86_64-apple-darwin
             ext: ""
             asset: ttys-agent-darwin-amd64
-            test_native: true
           - id: darwin-arm64
             runner: macos-15
             target: aarch64-apple-darwin
             ext: ""
             asset: ttys-agent-darwin-arm64
-            test_native: true
           - id: linux-amd64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             ext: ""
             asset: ttys-agent-linux-amd64
-            test_native: true
           - id: linux-arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             ext: ""
             asset: ttys-agent-linux-arm64
-            test_native: true
           - id: windows-amd64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             ext: ".exe"
             asset: ttys-agent-windows-amd64.exe
-            test_native: true
           - id: windows-arm64
             runner: windows-2025
             target: aarch64-pc-windows-msvc
             ext: ".exe"
             asset: ttys-agent-windows-arm64.exe
-            test_native: false
 
     steps:
       - uses: actions/checkout@v6
@@ -66,21 +126,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: agent
-
-      - name: Test native target
-        if: matrix.test_native
-        working-directory: agent
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo fmt --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test --release --all-targets
 
       - name: Build release agent
         shell: bash
@@ -101,7 +150,7 @@ jobs:
     name: Bundle Release Assets
     runs-on: ubuntu-24.04
     needs: build-agent
-    if: success()
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 
@@ -116,7 +165,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum * > checksums.txt
+          sha256sum ttys-agent-* > checksums.txt
 
       - uses: actions/upload-artifact@v7
         with:
@@ -125,7 +174,6 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*
