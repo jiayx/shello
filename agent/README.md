@@ -47,6 +47,16 @@ Choose a shell explicitly:
 cargo run -- -server https://ttys.example -shell /bin/bash
 ~~~
 
+Show the embedded Agent version:
+
+~~~bash
+cargo run -- --version
+# ttys-agent 0.2.0
+~~~
+
+The Agent also prints its version as the first line of a normal startup. Release
+binaries embed the package version from <code>agent/Cargo.toml</code>.
+
 Flags:
 
 - <code>-server &lt;url&gt;</code> (default <code>http://localhost:5173</code>): an
@@ -54,6 +64,7 @@ Flags:
 - <code>-session &lt;xxx-xxx&gt;</code>: attach to an existing session; accepted only
   with an HTTP(S) server URL.
 - <code>-shell &lt;path&gt;</code>: executable to start in the PTY.
+- <code>--version</code> or <code>-V</code>: print the embedded version and exit.
 
 On Unix the default comes from <code>$SHELL</code> and falls back to
 <code>/bin/sh</code>. On Windows the Agent prefers PowerShell 7, Windows PowerShell,

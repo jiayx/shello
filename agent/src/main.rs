@@ -32,6 +32,7 @@ mod app {
 
     const BINARY_TTY_OUTPUT: u8 = 0x01;
     const BINARY_STDIN: u8 = 0x02;
+    const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
     const NESTED_AGENT_ENV: &str = "TTYS_AGENT_ACTIVE";
     const TRACE_ENV: &str = "TTYS_TRACE";
     const MAX_HTTP_BODY: usize = 1024 * 1024;
@@ -110,6 +111,12 @@ mod app {
     }
 
     #[derive(Debug, Eq, PartialEq)]
+    enum Command {
+        Run(Config),
+        Version,
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
     struct ConnectInfo {
         viewer_url: String,
         host_websocket_url: String,
@@ -169,13 +176,21 @@ mod app {
     }
 
     pub fn run() -> Result<()> {
+        let config = match parse_args(env::args().skip(1))? {
+            Command::Run(config) => config,
+            Command::Version => {
+                println!("ttys-agent {AGENT_VERSION}");
+                return Ok(());
+            }
+        };
+
         if env::var_os(NESTED_AGENT_ENV).is_some() {
             eprintln!("ttys-agent is already active in this terminal session.");
             eprintln!("Open a new local terminal, or exit the current shared shell before starting another agent.");
             return Ok(());
         }
 
-        let config = parse_args(env::args().skip(1))?;
+        eprintln!("ttys-agent v{AGENT_VERSION}");
         let connect = resolve_connection(&config)?;
         let shell = config.shell.unwrap_or_else(default_shell);
         let mut pty = Pty::spawn(&shell)?;
@@ -250,7 +265,7 @@ mod app {
         Ok(())
     }
 
-    fn parse_args(args: impl Iterator<Item = String>) -> Result<Config> {
+    fn parse_args(args: impl Iterator<Item = String>) -> Result<Command> {
         let mut config = Config {
             server: "http://localhost:5173".to_string(),
             session: None,
@@ -258,6 +273,9 @@ mod app {
         };
         let mut args = args.peekable();
         while let Some(arg) = args.next() {
+            if matches!(arg.as_str(), "--version" | "-V") {
+                return Ok(Command::Version);
+            }
             let (name, inline) = arg
                 .split_once('=')
                 .map_or((arg.as_str(), None), |(left, right)| (left, Some(right)));
@@ -280,7 +298,7 @@ mod app {
         if let Some(session) = config.session.as_deref() {
             validate_session_id(session)?;
         }
-        Ok(config)
+        Ok(Command::Run(config))
     }
 
     fn validate_session_id(session_id: &str) -> Result<()> {
@@ -1161,11 +1179,11 @@ mod app {
                     .into_iter(),
                 )
                 .unwrap(),
-                Config {
+                Command::Run(Config {
                     server: "https://example.test:8443/base".to_string(),
                     session: Some("abc-def".to_string()),
                     shell: Some("/bin/bash".to_string()),
-                }
+                })
             );
 
             assert!(
@@ -1173,6 +1191,18 @@ mod app {
             );
             assert!(parse_args(["--server=".to_string()].into_iter()).is_err());
             assert!(parse_args(["--unknown".to_string()].into_iter()).is_err());
+        }
+
+        #[test]
+        fn parses_version_arguments() {
+            assert_eq!(
+                parse_args(["--version".to_string()].into_iter()).unwrap(),
+                Command::Version
+            );
+            assert_eq!(
+                parse_args(["-V".to_string()].into_iter()).unwrap(),
+                Command::Version
+            );
         }
 
         #[test]
