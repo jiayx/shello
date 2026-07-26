@@ -16,8 +16,8 @@ All notable user-visible changes are documented here.
 
 ### Changed
 
-- Linux releases now prefer system TLS, with CI enforcing a 1 MiB maximum for the
-  standard AMD64 and ARM64 binaries.
+- Linux releases now prefer system TLS to keep the standard AMD64 and ARM64
+  binaries lightweight.
 - Reorganized the Agent into focused CLI, connection, protocol, terminal, and
   transport modules while keeping startup orchestration in <code>main.rs</code>.
 

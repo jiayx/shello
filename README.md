@@ -218,7 +218,7 @@ once, then builds the six delivery targets:
 - <code>ttys-agent-windows-amd64.exe</code>
 - <code>ttys-agent-windows-arm64.exe</code>
 
-The standard Linux assets use the system TLS runtime and are constrained to 1 MiB. The
+The standard Linux assets use the system TLS runtime to stay lightweight. The
 portable Linux assets use Rustls and are downloaded only when the standard asset cannot
 start. Pushing a <code>v*</code> tag additionally bundles those binaries, generates
 <code>checksums.txt</code>, and publishes the GitHub Release. Follow

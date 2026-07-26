@@ -52,8 +52,7 @@ The <code>v*</code> tag triggers
 
 1. runs formatting, clippy, and release tests on Ubuntu;
 2. runs native clippy and tests on macOS ARM64 and Windows AMD64;
-3. builds six standard target binaries plus two portable Rustls Linux fallbacks, and
-   enforces a 1 MiB limit for the standard Linux binaries; and
+3. builds six standard target binaries plus two portable Rustls Linux fallbacks; and
 4. generates <code>checksums.txt</code> and publishes the GitHub Release.
 
 Pull requests run only the first two steps. Direct <code>main</code> pushes do not
