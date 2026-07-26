@@ -2,6 +2,13 @@
 
 All notable user-visible changes are documented here.
 
+## [0.2.1] - 2026-07-26
+
+### Added
+
+- Added <code>ttys-agent --version</code> / <code>-V</code> and a version banner at
+  normal Agent startup, using the version embedded in the release binary.
+
 ## [0.2.0] - 2026-07-26
 
 ### Changed

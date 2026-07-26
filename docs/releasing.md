@@ -10,8 +10,8 @@ The Agent package version in <code>agent/Cargo.toml</code> and the Git tag use t
 semantic version, with a <code>v</code> prefix on the tag. For this release:
 
 ~~~text
-agent/Cargo.toml  0.2.0
-Git tag           v0.2.0
+agent/Cargo.toml  0.2.1
+Git tag           v0.2.1
 ~~~
 
 Record user-visible changes in <code>CHANGELOG.md</code> before creating the tag.
@@ -42,8 +42,8 @@ Commit the version and documentation changes, then create and push an annotated 
 
 ~~~bash
 git add README.md CHANGELOG.md docs agent/Cargo.toml agent/Cargo.lock
-git commit -m "release: v0.2.0"
-git tag -a v0.2.0 -m "v0.2.0"
+git commit -m "release: v0.2.1"
+git tag -a v0.2.1 -m "v0.2.1"
 git push origin main --follow-tags
 ~~~
 
