@@ -36,7 +36,7 @@ ASSET_NAME="ttys-agent-$OS_VALUE-$ARCH_VALUE$EXT"
 
 (
   cd "$ROOT_DIR/agent"
-  cargo build --release
+  cargo build --release --no-default-features --features native-tls
   cp "target/release/ttys-agent$EXT" "$OUT_DIR/$ASSET_NAME"
 )
 

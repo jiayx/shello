@@ -52,13 +52,14 @@ The <code>v*</code> tag triggers
 
 1. runs formatting, clippy, and release tests on Ubuntu;
 2. runs native clippy and tests on macOS ARM64 and Windows AMD64;
-3. builds six optimized target binaries; and
+3. builds six standard target binaries plus two portable Rustls Linux fallbacks, and
+   enforces a 1 MiB limit for the standard Linux binaries; and
 4. generates <code>checksums.txt</code> and publishes the GitHub Release.
 
 Pull requests run only the first two steps. Direct <code>main</code> pushes do not
 trigger this workflow, so a paired <code>main</code> + tag push creates exactly one
-release run. Use <code>workflow_dispatch</code> for an explicit manual check of a
-branch.
+release run. Use <code>workflow_dispatch</code> for an explicit full-build check of a
+branch; it does not publish a Release without a version tag.
 
 Tag runs are not cancelled by the workflow's concurrency policy, so a release build is
 allowed to finish even if a later commit is pushed.
@@ -72,13 +73,16 @@ ttys-agent-darwin-amd64
 ttys-agent-darwin-arm64
 ttys-agent-linux-amd64
 ttys-agent-linux-arm64
+ttys-agent-linux-amd64-portable
+ttys-agent-linux-arm64-portable
 ttys-agent-windows-amd64.exe
 ttys-agent-windows-arm64.exe
 checksums.txt
 ~~~
 
-The shell and PowerShell bootstrap scripts consume these exact names. Do not rename
-them without changing the Worker bootstrap manifest and scripts.
+The shell bootstrap consumes these exact names. It uses the portable Linux files only
+when the standard system-TLS Agent fails its <code>--version</code> start probe. Do not
+rename them without changing the Worker bootstrap manifest and scripts.
 
 ## Post-release verification
 

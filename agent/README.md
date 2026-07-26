@@ -57,6 +57,24 @@ cargo run -- --version
 The Agent also prints its version as the first line of a normal startup. Release
 binaries embed the package version from <code>agent/Cargo.toml</code>.
 
+## TLS delivery
+
+The default build uses the operating system TLS provider. Linux release assets therefore
+depend on the host's OpenSSL runtime but remain below 1 MiB. The release also includes a
+<code>-portable</code> Linux asset built with Rustls and bundled trust roots. The
+<code>/start</code> bootstrap verifies the lightweight asset first and automatically falls
+back to that portable asset only if the lightweight binary cannot start.
+
+The two backends are mutually exclusive Cargo features:
+
+~~~bash
+# Default lightweight system-TLS build
+cargo build --release --no-default-features --features native-tls
+
+# Portable Linux fallback
+cargo build --release --no-default-features --features rustls-tls
+~~~
+
 Flags:
 
 - <code>-server &lt;url&gt;</code> (default <code>http://localhost:5173</code>): an

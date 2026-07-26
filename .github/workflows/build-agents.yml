@@ -45,6 +45,14 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --release --all-targets
 
+      - name: Check portable Rustls fallback
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked --no-default-features --features rustls-tls --all-targets -- -D warnings
+          cargo test --locked --no-default-features --features rustls-tls --release --all-targets
+
   native-test:
     name: Native tests ${{ matrix.id }}
     needs: quality
@@ -84,7 +92,7 @@ jobs:
       - native-test
     # Pull requests validate the Agent; only an immutable version tag builds
     # distributable binaries. This makes a paired main + tag push run once.
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -93,33 +101,59 @@ jobs:
           - id: darwin-amd64
             runner: macos-15-intel
             target: x86_64-apple-darwin
+            tls: native-tls
             ext: ""
             asset: ttys-agent-darwin-amd64
+            max_bytes: 0
           - id: darwin-arm64
             runner: macos-15
             target: aarch64-apple-darwin
+            tls: native-tls
             ext: ""
             asset: ttys-agent-darwin-arm64
+            max_bytes: 0
           - id: linux-amd64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            tls: native-tls
             ext: ""
             asset: ttys-agent-linux-amd64
+            max_bytes: 1048576
           - id: linux-arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            tls: native-tls
             ext: ""
             asset: ttys-agent-linux-arm64
+            max_bytes: 1048576
+          - id: linux-amd64-portable
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            tls: rustls-tls
+            ext: ""
+            asset: ttys-agent-linux-amd64-portable
+            max_bytes: 0
+          - id: linux-arm64-portable
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            tls: rustls-tls
+            ext: ""
+            asset: ttys-agent-linux-arm64-portable
+            max_bytes: 0
           - id: windows-amd64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
+            tls: native-tls
             ext: ".exe"
             asset: ttys-agent-windows-amd64.exe
+            max_bytes: 0
           - id: windows-arm64
             runner: windows-2025
             target: aarch64-pc-windows-msvc
+            tls: native-tls
             ext: ".exe"
             asset: ttys-agent-windows-arm64.exe
+            max_bytes: 0
 
     steps:
       - uses: actions/checkout@v6
@@ -138,8 +172,12 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           cd agent
-          cargo build --locked --release --target "${{ matrix.target }}"
+          cargo build --locked --release --target "${{ matrix.target }}" --no-default-features --features "${{ matrix.tls }}"
           cp "target/${{ matrix.target }}/release/ttys-agent${{ matrix.ext }}" "../dist/${{ matrix.asset }}"
+          if [ "${{ matrix.max_bytes }}" -gt 0 ] && [ "$(wc -c < "../dist/${{ matrix.asset }}")" -gt "${{ matrix.max_bytes }}" ]; then
+            echo "${{ matrix.asset }} exceeds the ${{ matrix.max_bytes }}-byte lightweight Linux limit" >&2
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v7
         with:

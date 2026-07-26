@@ -95,9 +95,12 @@ backpressure state or bounded replay over hidden data loss.
 
 <code>/start</code> and <code>/start.ps1</code> select an OS/architecture-specific
 Agent asset, download it together with <code>checksums.txt</code>, verify SHA-256, and
-run it attached to the current terminal. In local development the Worker serves locally
-built assets under <code>/downloads/local/</code>; deployed environments use the
-configured GitHub release or the explicit binary/checksum URLs.
+run it attached to the current terminal. Linux first uses a sub-1 MiB Agent linked to
+the host TLS runtime. If its harmless <code>--version</code> probe cannot start, the
+shell bootstrap verifies and switches to the same-architecture <code>-portable</code>
+Rustls asset. In local development the Worker serves locally built assets under
+<code>/downloads/local/</code>; deployed environments use the configured GitHub release
+or the explicit binary/checksum URLs.
 
 See [the root README](../README.md) for installation and
 [the release guide](releasing.md) for the delivery process.

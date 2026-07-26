@@ -45,41 +45,65 @@ esac
 mkdir -p "$TMP_DIR"
 ASSET_NAME="ttys-agent-$OS-$ARCH"
 AGENT_PATH="$TMP_DIR/$ASSET_NAME"
-DOWNLOAD_URL="$BINARY_BASE_URL/$ASSET_NAME"
 CHECKSUMS_PATH="$TMP_DIR/ttys-agent-checksums.txt"
 
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL --compressed "$DOWNLOAD_URL" -o "$AGENT_PATH"
-  curl -fsSL "$CHECKSUMS_URL" -o "$CHECKSUMS_PATH"
+  download() {
+    curl -fsSL --compressed "$1" -o "$2"
+  }
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "$AGENT_PATH" "$DOWNLOAD_URL"
-  wget -qO "$CHECKSUMS_PATH" "$CHECKSUMS_URL"
+  download() {
+    wget -qO "$2" "$1"
+  }
 else
   echo "curl or wget is required to download ttys-agent" >&2
   exit 1
 fi
 
-EXPECTED_CHECKSUM="$(awk "/  $ASSET_NAME$/ { print \\$1 }" "$CHECKSUMS_PATH" | head -n 1)"
-if [ -z "$EXPECTED_CHECKSUM" ]; then
-  echo "missing checksum for $ASSET_NAME" >&2
-  exit 1
-fi
+download "$CHECKSUMS_URL" "$CHECKSUMS_PATH"
 
-if command -v shasum >/dev/null 2>&1; then
-  ACTUAL_CHECKSUM="$(shasum -a 256 "$AGENT_PATH" | awk '{print $1}')"
-elif command -v sha256sum >/dev/null 2>&1; then
-  ACTUAL_CHECKSUM="$(sha256sum "$AGENT_PATH" | awk '{print $1}')"
-else
-  echo "shasum or sha256sum is required to verify ttys-agent" >&2
-  exit 1
-fi
+download_and_verify() {
+  asset_name="$1"
+  agent_path="$2"
+  download "$BINARY_BASE_URL/$asset_name" "$agent_path"
 
-if [ "$ACTUAL_CHECKSUM" != "$EXPECTED_CHECKSUM" ]; then
-  echo "checksum mismatch for $ASSET_NAME" >&2
-  exit 1
-fi
+  expected_checksum="$(awk -v asset="$asset_name" '$2 == asset { print $1; exit }' "$CHECKSUMS_PATH")"
+  if [ -z "$expected_checksum" ]; then
+    echo "missing checksum for $asset_name" >&2
+    exit 1
+  fi
 
-chmod +x "$AGENT_PATH"
+  if command -v shasum >/dev/null 2>&1; then
+    actual_checksum="$(shasum -a 256 "$agent_path" | awk '{print $1}')"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    actual_checksum="$(sha256sum "$agent_path" | awk '{print $1}')"
+  else
+    echo "shasum or sha256sum is required to verify ttys-agent" >&2
+    exit 1
+  fi
+
+  if [ "$actual_checksum" != "$expected_checksum" ]; then
+    echo "checksum mismatch for $asset_name" >&2
+    exit 1
+  fi
+
+  chmod +x "$agent_path"
+}
+
+download_and_verify "$ASSET_NAME" "$AGENT_PATH"
+
+if [ "$OS" = "linux" ] && ! "$AGENT_PATH" --version >/dev/null 2>&1; then
+  PORTABLE_ASSET_NAME="$ASSET_NAME-portable"
+  PORTABLE_AGENT_PATH="$TMP_DIR/$PORTABLE_ASSET_NAME"
+  echo "ttys-agent: system TLS is unavailable; using the portable TLS fallback." >&2
+  download_and_verify "$PORTABLE_ASSET_NAME" "$PORTABLE_AGENT_PATH"
+  if ! "$PORTABLE_AGENT_PATH" --version >/dev/null 2>&1; then
+    echo "ttys-agent portable fallback could not start" >&2
+    exit 1
+  fi
+  ASSET_NAME="$PORTABLE_ASSET_NAME"
+  AGENT_PATH="$PORTABLE_AGENT_PATH"
+fi
 
 TTY_DEVICE="/dev/tty"
 if [ ! -r "$TTY_DEVICE" ] || [ ! -w "$TTY_DEVICE" ]; then

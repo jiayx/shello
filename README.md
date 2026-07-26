@@ -45,9 +45,11 @@ curl -fsSL https://your-ttys.example/start | sh
 ~~~
 
 The bootstrap script selects the matching release binary, verifies it against
-<code>checksums.txt</code>, then runs it attached to the current terminal. Windows users
-can use <code>/start.ps1</code> from PowerShell. See [the release guide](docs/releasing.md)
-for the published asset names and deployment configuration.
+<code>checksums.txt</code>, then runs it attached to the current terminal. On Linux it
+first uses the lightweight system-TLS Agent; if that binary cannot load the host's TLS
+runtime, it verifies and uses the portable Rustls fallback. Windows users can use
+<code>/start.ps1</code> from PowerShell. See [the release guide](docs/releasing.md) for
+the published asset names and deployment configuration.
 
 ## How it works
 
@@ -211,15 +213,19 @@ once, then builds the six delivery targets:
 - <code>ttys-agent-darwin-arm64</code>
 - <code>ttys-agent-linux-amd64</code>
 - <code>ttys-agent-linux-arm64</code>
+- <code>ttys-agent-linux-amd64-portable</code>
+- <code>ttys-agent-linux-arm64-portable</code>
 - <code>ttys-agent-windows-amd64.exe</code>
 - <code>ttys-agent-windows-arm64.exe</code>
 
-Pushing a <code>v*</code> tag additionally bundles those binaries, generates
+The standard Linux assets use the system TLS runtime and are constrained to 1 MiB. The
+portable Linux assets use Rustls and are downloaded only when the standard asset cannot
+start. Pushing a <code>v*</code> tag additionally bundles those binaries, generates
 <code>checksums.txt</code>, and publishes the GitHub Release. Follow
 [the release guide](docs/releasing.md) for the versioning and verification checklist.
 The workflow does not run for a direct <code>main</code> push, so a paired push of
 <code>main</code> and its tag creates exactly one release run. Use pull requests for
-pre-merge CI, or <code>workflow_dispatch</code> for an explicit manual check.
+pre-merge CI, or <code>workflow_dispatch</code> for an explicit manual full-build check.
 
 ## Documentation
 

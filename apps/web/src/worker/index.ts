@@ -22,6 +22,8 @@ const releaseTargets = {
   "darwin-arm64": "ttys-agent-darwin-arm64",
   "linux-amd64": "ttys-agent-linux-amd64",
   "linux-arm64": "ttys-agent-linux-arm64",
+  "linux-amd64-portable": "ttys-agent-linux-amd64-portable",
+  "linux-arm64-portable": "ttys-agent-linux-arm64-portable",
   "windows-amd64": "ttys-agent-windows-amd64.exe",
   "windows-arm64": "ttys-agent-windows-arm64.exe",
 } as const;

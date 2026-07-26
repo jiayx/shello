@@ -2,6 +2,13 @@
 
 All notable user-visible changes are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- Linux releases now prefer a sub-1 MiB system-TLS Agent and provide a verified Rustls
+  portable fallback for hosts without a compatible TLS runtime.
+
 ## [0.2.1] - 2026-07-26
 
 ### Added

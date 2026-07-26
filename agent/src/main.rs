@@ -1,3 +1,8 @@
+#[cfg(all(feature = "native-tls", feature = "rustls-tls"))]
+compile_error!("choose exactly one TLS backend");
+#[cfg(not(any(feature = "native-tls", feature = "rustls-tls")))]
+compile_error!("a TLS backend is required");
+
 fn main() {
     if let Err(error) = app::run() {
         eprintln!("ttys-agent: {error}");
@@ -12,9 +17,14 @@ mod app {
     #[cfg(windows)]
     #[path = "platform_windows.rs"]
     mod platform;
+    #[cfg(feature = "native-tls")]
+    #[path = "tls_native.rs"]
+    mod tls;
+    #[cfg(feature = "rustls-tls")]
+    #[path = "tls_rustls.rs"]
+    mod tls;
 
     use self::platform::{default_shell, terminal_size, Pty, PtyHandle, RawTerminal, TerminalSize};
-    use native_tls::TlsConnector;
     use serde::Deserialize;
     use std::env;
     use std::fmt::{Display, Formatter};
@@ -53,7 +63,6 @@ mod app {
     #[derive(Debug)]
     pub(super) enum Error {
         Io(io::Error),
-        Tls(native_tls::Error),
         Json(serde_json::Error),
         WebSocket(tungstenite::Error),
         Message(String),
@@ -63,7 +72,6 @@ mod app {
         fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Io(error) => write!(formatter, "{error}"),
-                Self::Tls(error) => write!(formatter, "{error}"),
                 Self::Json(error) => write!(formatter, "{error}"),
                 Self::WebSocket(error) => write!(formatter, "{error}"),
                 Self::Message(message) => formatter.write_str(message),
@@ -76,18 +84,6 @@ mod app {
     impl From<io::Error> for Error {
         fn from(value: io::Error) -> Self {
             Self::Io(value)
-        }
-    }
-
-    impl From<native_tls::Error> for Error {
-        fn from(value: native_tls::Error) -> Self {
-            Self::Tls(value)
-        }
-    }
-
-    impl From<native_tls::HandshakeError<TcpStream>> for Error {
-        fn from(value: native_tls::HandshakeError<TcpStream>) -> Self {
-            Self::Message(value.to_string())
         }
     }
 
@@ -395,7 +391,7 @@ mod app {
         );
         let tcp = connect_tcp(&url.host, port)?;
         if url.scheme == "https" {
-            let mut stream = TlsConnector::new()?.connect(url.tls_host(), tcp)?;
+            let mut stream = tls::connect(tcp, url.tls_host())?;
             stream.write_all(request.as_bytes())?;
             stream.write_all(body)?;
             read_http_response(stream)
@@ -995,30 +991,18 @@ mod app {
             .max_write_buffer_size(MAX_WEBSOCKET_MESSAGE + 4 * 1024)
             .max_message_size(Some(MAX_WEBSOCKET_MESSAGE))
             .max_frame_size(Some(MAX_WEBSOCKET_MESSAGE));
-        let (mut socket, _) = match client_tls_with_config(request, tcp, Some(config), None) {
-            Ok(result) => result,
-            Err(HandshakeError::Failure(error)) => return Err(error.into()),
-            Err(error) => {
-                return Err(Error::Message(format!(
-                    "websocket handshake failed: {error}"
-                )))
-            }
-        };
-        set_websocket_poll_timeout(socket.get_mut())?;
+        let (mut socket, _) =
+            match client_tls_with_config(request, tcp, Some(config), tls::connector()?) {
+                Ok(result) => result,
+                Err(HandshakeError::Failure(error)) => return Err(error.into()),
+                Err(error) => {
+                    return Err(Error::Message(format!(
+                        "websocket handshake failed: {error}"
+                    )))
+                }
+            };
+        tls::set_poll_timeout(socket.get_mut())?;
         Ok(socket)
-    }
-
-    fn set_websocket_poll_timeout(stream: &mut MaybeTlsStream<TcpStream>) -> Result<()> {
-        match stream {
-            MaybeTlsStream::Plain(stream) => {
-                stream.set_read_timeout(Some(Duration::from_millis(100)))?
-            }
-            MaybeTlsStream::NativeTls(stream) => stream
-                .get_ref()
-                .set_read_timeout(Some(Duration::from_millis(100)))?,
-            _ => {}
-        }
-        Ok(())
     }
 
     fn run_websocket(
