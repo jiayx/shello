@@ -203,9 +203,9 @@ This produces:
 
 [<code>.github/workflows/build-agents.yml</code>](.github/workflows/build-agents.yml)
 is intentionally Agent-only: it runs when <code>agent/**</code> or the workflow
-changes. On pull requests and updates to <code>main</code>, it performs the Rust quality
-gate on Ubuntu and native lint/test checks on macOS ARM64 and Windows AMD64. A
-<code>v*</code> tag repeats those checks once, then builds the six delivery targets:
+changes. Pull requests perform the Rust quality gate on Ubuntu and native lint/test
+checks on macOS ARM64 and Windows AMD64. A <code>v*</code> tag repeats those checks
+once, then builds the six delivery targets:
 
 - <code>ttys-agent-darwin-amd64</code>
 - <code>ttys-agent-darwin-arm64</code>
@@ -217,8 +217,9 @@ gate on Ubuntu and native lint/test checks on macOS ARM64 and Windows AMD64. A
 Pushing a <code>v*</code> tag additionally bundles those binaries, generates
 <code>checksums.txt</code>, and publishes the GitHub Release. Follow
 [the release guide](docs/releasing.md) for the versioning and verification checklist.
-Therefore a paired push of <code>main</code> and its tag does not duplicate the
-six-platform build matrix.
+The workflow does not run for a direct <code>main</code> push, so a paired push of
+<code>main</code> and its tag creates exactly one release run. Use pull requests for
+pre-merge CI, or <code>workflow_dispatch</code> for an explicit manual check.
 
 ## Documentation
 

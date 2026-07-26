@@ -6,8 +6,6 @@ on:
       - "agent/**"
       - ".github/workflows/build-agents.yml"
   push:
-    branches:
-      - main
     tags:
       - "v*"
     paths:
@@ -84,9 +82,8 @@ jobs:
     needs:
       - quality
       - native-test
-    # Branches validate the Agent; only an immutable version tag builds
-    # distributable binaries. This avoids a duplicated build matrix when main
-    # and its release tag are pushed together.
+    # Pull requests validate the Agent; only an immutable version tag builds
+    # distributable binaries. This makes a paired main + tag push run once.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.runner }}
     strategy:

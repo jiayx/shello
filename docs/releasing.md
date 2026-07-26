@@ -55,9 +55,10 @@ The <code>v*</code> tag triggers
 3. builds six optimized target binaries; and
 4. generates <code>checksums.txt</code> and publishes the GitHub Release.
 
-A normal push to <code>main</code> or a pull request runs only the first two steps.
-This keeps everyday feedback fast and prevents a paired <code>main</code> + tag push
-from duplicating the six-platform build matrix.
+Pull requests run only the first two steps. Direct <code>main</code> pushes do not
+trigger this workflow, so a paired <code>main</code> + tag push creates exactly one
+release run. Use <code>workflow_dispatch</code> for an explicit manual check of a
+branch.
 
 Tag runs are not cancelled by the workflow's concurrency policy, so a release build is
 allowed to finish even if a later commit is pushed.
