@@ -103,12 +103,27 @@ TTYS_TRACE=/tmp/ttys.trace cargo run -- -server http://localhost:5173
 Load that file in <code>/debug/replay</code> on the same ttys web deployment to
 reproduce output in xterm.js without a WebSocket session.
 
+## Source layout and tests
+
+The binary entry point in <code>src/main.rs</code> owns startup orchestration and
+top-level error handling. Its supporting code is split into a small set of
+responsibility-based modules: <code>cli</code>, <code>connection</code>,
+<code>protocol</code>, <code>terminal</code>, and <code>transport</code>. Platform
+PTY implementations and the selectable TLS backends remain separate
+infrastructure modules.
+
+Private behavior is tested next to its implementation in each module's
+<code>#[cfg(test)]</code> block. Tests that execute the packaged binary live under
+<code>tests/</code>; this currently verifies version output and CLI error handling.
+
 ## Verification
 
 ~~~bash
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --release --all-targets
+cargo clippy --locked --no-default-features --features rustls-tls --all-targets -- -D warnings
+cargo test --locked --no-default-features --features rustls-tls --release --all-targets
 cargo build --locked --release
 ~~~
 

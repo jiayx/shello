@@ -3,19 +3,19 @@ use crate::{Error, Result};
 const SESSION_ID_ALPHABET: &str = "23456789abcdefghjkmnpqrstuvwxyz";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct Config {
-    pub(super) server: String,
-    pub(super) session: Option<String>,
-    pub(super) shell: Option<String>,
+pub(crate) struct Config {
+    pub(crate) server: String,
+    pub(crate) session: Option<String>,
+    pub(crate) shell: Option<String>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub(super) enum Command {
+pub(crate) enum Command {
     Run(Config),
     Version,
 }
 
-pub(super) fn parse_args(args: impl Iterator<Item = String>) -> Result<Command> {
+pub(crate) fn parse_args(args: impl Iterator<Item = String>) -> Result<Command> {
     let mut config = Config {
         server: "http://localhost:5173".to_string(),
         session: None,
@@ -62,5 +62,47 @@ fn validate_session_id(session_id: &str) -> Result<()> {
         Ok(())
     } else {
         Err(Error::Message(format!("invalid session ID: {session_id}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_arguments_and_validates_session_ids() {
+        assert_eq!(
+            parse_args(
+                [
+                    "--server=https://example.test:8443/base".to_string(),
+                    "--session".to_string(),
+                    "abc-def".to_string(),
+                    "--shell=/bin/bash".to_string(),
+                ]
+                .into_iter(),
+            )
+            .unwrap(),
+            Command::Run(Config {
+                server: "https://example.test:8443/base".to_string(),
+                session: Some("abc-def".to_string()),
+                shell: Some("/bin/bash".to_string()),
+            })
+        );
+
+        assert!(parse_args(["--session".to_string(), "abc-io0".to_string()].into_iter()).is_err());
+        assert!(parse_args(["--server=".to_string()].into_iter()).is_err());
+        assert!(parse_args(["--unknown".to_string()].into_iter()).is_err());
+    }
+
+    #[test]
+    fn parses_version_arguments() {
+        assert_eq!(
+            parse_args(["--version".to_string()].into_iter()).unwrap(),
+            Command::Version
+        );
+        assert_eq!(
+            parse_args(["-V".to_string()].into_iter()).unwrap(),
+            Command::Version
+        );
     }
 }
