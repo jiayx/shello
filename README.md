@@ -9,70 +9,65 @@ Anonymous shared terminal over Cloudflare Workers and Durable Objects.
 ## Components
 
 - `apps/web`: React + Vite frontend and Cloudflare Worker
-- `agent-rust`: Rust host agent
-- `agent`: Go host agent
-- `agent-zig`: Zig host agent
+- `agent`: Rust host agent for macOS, Linux, and Windows
 - `scripts`: local development and bootstrap helpers
 
-## Current State
+The repository has one supported host-agent implementation. It creates and attaches
+sessions, runs a local shell in a PTY, reconnects the host websocket, batches terminal
+output, synchronizes terminal size, and asks the host before granting remote control.
 
-- The web app can create a session, attach viewers, and bridge host/viewer websocket traffic through the Worker.
-- The Rust agent is the default implementation used by bootstrap downloads.
-- The Go and Zig agents remain available as reference implementations and local development fallbacks.
+## Terminal behavior and browser compatibility
 
-## Repository Layout
+The host PTY is the source of truth for terminal dimensions. This preserves full-screen
+programs, line wrapping, and terminal state for every viewer: a viewer's browser never
+resizes the host shell. The web client instead scales the rendered terminal to the
+available container and observes container, browser-window, and mobile visual-viewport
+changes so that split views and virtual keyboards do not crop the terminal.
 
-- `apps/web`: browser UI, Worker routes, Durable Object logic
-- `agent-rust/src`: Rust PTY, transport, terminal, and session flow
-- `agent/cmd/ttys-agent`: Go CLI entrypoint
-- `agent/internal`: Go PTY, websocket transport, platform handling, session flow
-- `agent-zig/src`: Zig PTY, transport, terminal, and session flow
-- `.github/workflows/build-agents.yml`: CI build matrix for Rust, Go, and Zig release assets
+The client uses xterm.js and targets current Chrome, Edge, Firefox, and Safari releases.
+It keeps terminal output intact while waiting briefly for the host's dimensions, then
+uses xterm's safe default size rather than indefinitely buffering output. Input is
+chunked before it crosses the websocket and paused when the browser send buffer is full,
+which prevents a large paste from disconnecting a slow or reconnecting host.
+
+The Agent publishes its PTY profile to the session. Unix hosts use standard terminal
+behavior; Windows hosts announce ConPTY so xterm.js can use its Windows wrapping and
+scrollback compatibility rules. The underlying shell, fonts, and browser remain
+responsible for the exact glyph coverage of CJK and emoji content.
 
 ## Requirements
 
 - Node.js with `pnpm`
-- Rust stable toolchain for `agent-rust`
-- Go `1.24.2` or compatible toolchain
-- Zig `0.16.0` for `agent-zig`
+- Rust stable toolchain
 - A Cloudflare account for deployment
 
 ## Web Development
 
-Install dependencies:
+Install dependencies and start the local web app:
 
 ```bash
 pnpm install
-```
-
-Run the web app locally:
-
-```bash
 pnpm dev
 ```
 
-Build the web app:
+Build or deploy the Worker:
 
 ```bash
 pnpm build
-```
-
-Deploy the Worker:
-
-```bash
 pnpm deploy
 ```
 
-## Go Agent
+## Host Agent
 
-Build:
+Build and test:
 
 ```bash
 cd agent
-go build ./...
+cargo test --release --all-targets
+cargo build --release
 ```
 
-Run against a local server:
+Start a new local session:
 
 ```bash
 ./scripts/start.sh http://localhost:5173
@@ -84,132 +79,58 @@ Attach to an existing session:
 ./scripts/start.sh http://localhost:5173 <session-id>
 ```
 
-Windows PowerShell entrypoint:
+The equivalent PowerShell entrypoint is:
 
 ```powershell
 ./scripts/start.ps1 -Server http://localhost:5173
 ```
 
-Direct Go CLI usage:
+You can also invoke Cargo directly:
 
 ```bash
 cd agent
-go run ./cmd/ttys-agent -server http://localhost:5173
+cargo run -- -server http://localhost:5173
+cargo run -- -server http://localhost:5173 -session <session-id>
 ```
 
 Flags:
 
-- `-server`: HTTP base URL or direct host websocket URL
-- `-session`: existing session ID when using an HTTP server URL
-- `-shell`: shell to launch
+- `-server`: HTTP(S) base URL or direct `ws(s)` host websocket URL
+- `-session`: existing session ID when using an HTTP(S) server URL
+- `-shell`: shell executable to launch
 
-## Rust Agent
-
-Build:
+For terminal-rendering diagnostics, record raw PTY output with:
 
 ```bash
-cd agent-rust
-cargo build --release
+cd agent
+TTYS_TRACE=/tmp/ttys.trace cargo run -- -server http://localhost:5173
 ```
 
-Run against a local server:
-
-```bash
-cd agent-rust
-cargo run -- -server http://localhost:5173
-```
-
-Attach to an existing session:
-
-```bash
-cd agent-rust
-cargo run -- -server http://localhost:5173 -session <session-id>
-```
-
-Trace PTY output for terminal rendering debugging:
-
-```bash
-cd agent-rust
-TTYS_TRACE=/tmp/ttys-opencode.trace cargo run -- -server http://localhost:5173
-```
-
-Open `http://localhost:5173/debug/replay`, load the trace file, set the recorded host
-terminal columns and rows, and replay the raw bytes in xterm.js without websocket or
-Durable Object transport.
-
-## Zig Agent
-
-Build the default native target:
-
-```bash
-cd agent-zig
-zig build
-```
-
-Build Windows:
-
-```bash
-cd agent-zig
-zig build -Dtarget=x86_64-windows-gnu
-```
-
-Build Linux:
-
-```bash
-cd agent-zig
-zig build -Dtarget=x86_64-linux-gnu
-```
-
-Notes:
-
-- Unix-like targets use the built-in Zig WebSocket transport; no `libcurl` runtime dependency is required.
-- Windows uses `WinHTTP` plus `ConPTY`; this path builds successfully but still needs more runtime validation.
+Then open `http://localhost:5173/debug/replay` and load the trace to replay it in
+xterm.js without the websocket or Durable Object transport.
 
 ## Local Bootstrap Assets
 
-Build a local Rust agent into the web download directory:
+Build the current machine's agent binary into the web download directory:
 
 ```bash
 ./scripts/build-local-agent.sh
 ```
 
-This writes the current machine's Rust agent binary to:
+This produces:
 
-- `apps/web/public/downloads/local/ttys-agent-rust-<os>-<arch>[.exe]`
+- `apps/web/public/downloads/local/ttys-agent-<os>-<arch>[.exe]`
 - `apps/web/public/downloads/local/checksums.txt`
 
 ## CI and Releases
 
-GitHub Actions workflow:
+`.github/workflows/build-agents.yml` tests native targets and produces release assets for:
 
-- `.github/workflows/build-agents.yml`
+- `ttys-agent-darwin-amd64`
+- `ttys-agent-darwin-arm64`
+- `ttys-agent-linux-amd64`
+- `ttys-agent-linux-arm64`
+- `ttys-agent-windows-amd64.exe`
+- `ttys-agent-windows-arm64.exe`
 
-It builds:
-
-- Rust:
-  - `ttys-agent-rust-darwin-amd64`
-  - `ttys-agent-rust-darwin-arm64`
-  - `ttys-agent-rust-linux-amd64`
-  - `ttys-agent-rust-linux-arm64`
-  - `ttys-agent-rust-windows-amd64.exe`
-  - `ttys-agent-rust-windows-arm64.exe`
-- Go:
-  - `ttys-agent-darwin-amd64`
-  - `ttys-agent-darwin-arm64`
-  - `ttys-agent-linux-amd64`
-  - `ttys-agent-linux-arm64`
-  - `ttys-agent-windows-amd64.exe`
-- Zig:
-  - `ttys-agent-zig-darwin-amd64`
-  - `ttys-agent-zig-darwin-arm64`
-  - `ttys-agent-zig-linux-amd64`
-  - `ttys-agent-zig-linux-arm64`
-  - `ttys-agent-zig-windows-amd64.exe`
-
-On `v*` tags, the workflow also publishes all assets plus `checksums.txt` to GitHub Releases.
-
-## Status Guidance
-
-Bootstrap downloads use the Rust agent by default.
-
-The Zig agent remains available as a fallback implementation.
+On `v*` tags, it publishes those assets and `checksums.txt` to the GitHub release.

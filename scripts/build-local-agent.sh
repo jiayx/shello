@@ -32,12 +32,12 @@ esac
 
 mkdir -p "$OUT_DIR"
 
-ASSET_NAME="ttys-agent-rust-$OS_VALUE-$ARCH_VALUE$EXT"
+ASSET_NAME="ttys-agent-$OS_VALUE-$ARCH_VALUE$EXT"
 
 (
-  cd "$ROOT_DIR/agent-rust"
+  cd "$ROOT_DIR/agent"
   cargo build --release
-  cp "target/release/ttys-agent-rust$EXT" "$OUT_DIR/$ASSET_NAME"
+  cp "target/release/ttys-agent$EXT" "$OUT_DIR/$ASSET_NAME"
 )
 
 if command -v shasum >/dev/null 2>&1; then

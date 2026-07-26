@@ -1,15 +1,15 @@
 [package]
-name = "ttys-agent-rust"
+name = "ttys-agent"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 base64 = "0.22"
 libc = "0.2"
-native-tls = "0.2"
+native-tls = { version = "0.2", features = ["vendored"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tungstenite = { version = "0.28", default-features = false, features = ["handshake", "native-tls"] }
+tungstenite = { version = "0.28", default-features = false, features = ["handshake", "native-tls-vendored"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

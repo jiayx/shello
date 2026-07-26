@@ -18,12 +18,12 @@ type ReleaseManifest = {
 };
 
 const releaseTargets = {
-  "darwin-amd64": "ttys-agent-rust-darwin-amd64",
-  "darwin-arm64": "ttys-agent-rust-darwin-arm64",
-  "linux-amd64": "ttys-agent-rust-linux-amd64",
-  "linux-arm64": "ttys-agent-rust-linux-arm64",
-  "windows-amd64": "ttys-agent-rust-windows-amd64.exe",
-  "windows-arm64": "ttys-agent-rust-windows-arm64.exe",
+  "darwin-amd64": "ttys-agent-darwin-amd64",
+  "darwin-arm64": "ttys-agent-darwin-arm64",
+  "linux-amd64": "ttys-agent-linux-amd64",
+  "linux-arm64": "ttys-agent-linux-arm64",
+  "windows-amd64": "ttys-agent-windows-amd64.exe",
+  "windows-arm64": "ttys-agent-windows-arm64.exe",
 } as const;
 
 const sessionIdAlphabet = "23456789abcdefghjkmnpqrstuvwxyz";

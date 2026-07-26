@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { mountTerminal, type TerminalController, type TerminalSize } from "./terminal";
+import {
+  mountTerminal,
+  type HostTerminalProfile,
+  type TerminalController,
+  type TerminalSize,
+} from "./terminal";
 import {
   BinaryMessageType,
   binarySocketDataToArrayBuffer,
@@ -33,6 +38,7 @@ type SessionStatus = {
   hostDisconnectDeadline: number | null;
   pendingRequestExpiresAt: number | null;
   terminalSize: TerminalSize | null;
+  terminalProfile: HostTerminalProfile | null;
 };
 
 type PlatformTab = "macos" | "linux" | "windows";
@@ -47,6 +53,11 @@ type FlashPalette = {
 };
 
 const OFFLINE_STATUS_POLL_MS = 3000;
+const TERMINAL_SIZE_FALLBACK_MS = 750;
+const MAX_PENDING_TERMINAL_OUTPUT_BYTES = 4 * 1024 * 1024;
+const MAX_STDIN_FRAME_BYTES = 32 * 1024;
+const MAX_WEBSOCKET_BUFFERED_INPUT_BYTES = 512 * 1024;
+const textEncoder = new TextEncoder();
 
 class SessionEndedError extends Error {}
 
@@ -156,6 +167,9 @@ export function App() {
     let connectionGeneration = 0;
     let terminalReady = false;
     let pendingOutput: Uint8Array[] = [];
+    let pendingOutputBytes = 0;
+    let terminalReadyTimer: number | null = null;
+    let inputBackpressureNotified = false;
     type ConnectionAttempt = {
       isStale: () => boolean;
       ownsSocket: (ws: WebSocket) => boolean;
@@ -178,6 +192,40 @@ export function App() {
         socket.current = null;
       }
       activeSocket = null;
+    }
+
+    function clearTerminalReadyTimer() {
+      if (terminalReadyTimer !== null) {
+        window.clearTimeout(terminalReadyTimer);
+        terminalReadyTimer = null;
+      }
+    }
+
+    function stageTtyOutput(payload: Uint8Array) {
+      if (terminalReady) {
+        terminal.current?.write(payload);
+        return;
+      }
+
+      const copy = payload.slice();
+      pendingOutput.push(copy);
+      pendingOutputBytes += copy.byteLength;
+
+      if (pendingOutputBytes >= MAX_PENDING_TERMINAL_OUTPUT_BYTES) {
+        setStatusNote("Host size is delayed; rendering with the compatible fallback size.");
+        flushPendingOutput();
+        return;
+      }
+
+      if (terminalReadyTimer === null) {
+        terminalReadyTimer = window.setTimeout(() => {
+          terminalReadyTimer = null;
+          if (!terminalReady) {
+            setStatusNote("Host size is delayed; rendering with the compatible fallback size.");
+            flushPendingOutput();
+          }
+        }, TERMINAL_SIZE_FALLBACK_MS);
+      }
     }
 
     async function fetchSessionStatus(): Promise<SessionStatus | null> {
@@ -281,11 +329,7 @@ export function App() {
         const data = event.data;
         if (typeof data !== "string") {
           void handleBinarySocketMessage(data, ws, (payload) => {
-            if (!terminalReady) {
-              pendingOutput.push(payload.slice());
-              return;
-            }
-            terminal.current?.write(payload);
+            stageTtyOutput(payload);
           });
           return;
         }
@@ -326,7 +370,14 @@ export function App() {
           flashRequestControlButton();
           return;
         }
-        ws.send(encodeBinaryMessage(BinaryMessageType.stdin, new TextEncoder().encode(value)));
+        if (sendTerminalInput(ws, value)) {
+          inputBackpressureNotified = false;
+          return;
+        }
+        if (!inputBackpressureNotified) {
+          inputBackpressureNotified = true;
+          setStatusNote("Input paused while the connection catches up. Please try again shortly.");
+        }
       }) ?? null;
     }
 
@@ -451,6 +502,7 @@ export function App() {
 
     function applySessionStatus(status: SessionStatus) {
       setSessionStatus(status);
+      terminal.current?.setHostTerminalProfile(status.terminalProfile);
       if (status.terminalSize) {
         terminal.current?.resize(status.terminalSize);
         flushPendingOutput();
@@ -459,6 +511,7 @@ export function App() {
 
     function flushPendingOutput() {
       terminalReady = true;
+      clearTerminalReadyTimer();
       if (pendingOutput.length === 0) {
         return;
       }
@@ -466,6 +519,7 @@ export function App() {
         terminal.current?.write(payload);
       }
       pendingOutput = [];
+      pendingOutputBytes = 0;
     }
 
     void connectViewer();
@@ -473,6 +527,7 @@ export function App() {
     return () => {
       cancelled = true;
       clearReconnectTimer();
+      clearTerminalReadyTimer();
       inputCleanup.current?.();
       inputCleanup.current = null;
       closeActiveSocket();
@@ -513,6 +568,7 @@ export function App() {
       setTransportState("idle");
       setConnecting(false);
       terminal.current?.reset();
+      terminal.current?.setHostTerminalProfile(null);
     } finally {
       suppressReconnectRef.current = false;
       setCreating(false);
@@ -875,6 +931,31 @@ function handleBinaryMessage(buffer: ArrayBuffer, handleTtyOutput: (payload: Uin
       return;
     default:
       return;
+  }
+}
+
+function sendTerminalInput(ws: WebSocket, value: string) {
+  if (ws.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+
+  const bytes = textEncoder.encode(value);
+  const frames = Math.ceil(bytes.byteLength / MAX_STDIN_FRAME_BYTES);
+  if (
+    ws.bufferedAmount + bytes.byteLength + frames >
+    MAX_WEBSOCKET_BUFFERED_INPUT_BYTES
+  ) {
+    return false;
+  }
+
+  try {
+    for (let offset = 0; offset < bytes.byteLength; offset += MAX_STDIN_FRAME_BYTES) {
+      const chunk = bytes.subarray(offset, offset + MAX_STDIN_FRAME_BYTES);
+      ws.send(encodeBinaryMessage(BinaryMessageType.stdin, chunk));
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
 

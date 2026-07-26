@@ -7,9 +7,9 @@ $Root = Split-Path -Parent $PSScriptRoot
 Set-Location "$Root/agent"
 
 if ($Session) {
-  go run ./cmd/ttys-agent -server $Server -session $Session
+  cargo run -- -server $Server -session $Session
   exit $LASTEXITCODE
 }
 
-go run ./cmd/ttys-agent -server $Server
+cargo run -- -server $Server
 exit $LASTEXITCODE

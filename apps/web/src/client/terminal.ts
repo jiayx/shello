@@ -7,6 +7,11 @@ export type TerminalSize = {
   rows: number;
 };
 
+export type HostTerminalProfile = {
+  platform: "unix" | "windows";
+  pty?: "conpty";
+};
+
 export type TerminalController = {
   dispose: () => void;
   focus: () => void;
@@ -14,13 +19,15 @@ export type TerminalController = {
   onData: (handler: (value: string) => void) => () => void;
   reset: () => void;
   resize: (size: TerminalSize) => void;
+  setHostTerminalProfile: (profile: HostTerminalProfile | null) => void;
   write: (value: string | Uint8Array) => void;
   writeln: (value: string) => void;
 };
 
-const terminalWriteFlushDelayMs = 1;
+const terminalWriteFlushDelayMs = 8;
 const terminalWriteMaxBatchBytes = 64 * 1024;
 const terminalWriteMaxPendingBytes = 4 * 1024 * 1024;
+const textEncoder = new TextEncoder();
 
 export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize): TerminalController {
   const viewport = document.createElement("div");
@@ -55,8 +62,9 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
 
   const writeBatcher = new TerminalWriteBatcher((value) => terminal.write(value));
   let resizeTimer = 0;
-  let lastWidth = Math.round(viewport.clientWidth);
-  let lastHeight = Math.round(viewport.clientHeight);
+  let initialResizeFrame = 0;
+  let lastWidth = -1;
+  let lastHeight = -1;
   let currentSize: TerminalSize = initialSize ?? { cols: terminal.cols, rows: terminal.rows };
 
   function scheduleFit(width: number, height: number) {
@@ -116,10 +124,24 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
   }
 
   window.addEventListener("resize", handleWindowResize);
+  window.visualViewport?.addEventListener("resize", handleWindowResize);
+  const resizeObserver =
+    typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => {
+          handleWindowResize();
+        });
+  resizeObserver?.observe(viewport);
+  initialResizeFrame = window.requestAnimationFrame(handleWindowResize);
 
   return {
     dispose() {
       window.removeEventListener("resize", handleWindowResize);
+      window.visualViewport?.removeEventListener("resize", handleWindowResize);
+      resizeObserver?.disconnect();
+      if (initialResizeFrame) {
+        window.cancelAnimationFrame(initialResizeFrame);
+      }
       if (resizeTimer) {
         window.clearTimeout(resizeTimer);
       }
@@ -156,6 +178,12 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
       }
       updateScale();
     },
+    setHostTerminalProfile(profile) {
+      terminal.options.windowsPty =
+        profile?.platform === "windows" && profile.pty === "conpty"
+          ? { backend: "conpty" }
+          : undefined;
+    },
     write(value) {
       writeBatcher.write(value);
     },
@@ -187,12 +215,12 @@ class TerminalWriteBatcher {
       return;
     }
 
+    if (this.pendingBytes + size > terminalWriteMaxPendingBytes) {
+      this.flush();
+    }
+
     this.pending.push(value);
     this.pendingBytes += size;
-    if (this.pendingBytes > terminalWriteMaxPendingBytes) {
-      this.dropPending();
-      return;
-    }
     if (this.pendingBytes >= terminalWriteMaxBatchBytes) {
       this.flush();
       return;
@@ -223,17 +251,6 @@ class TerminalWriteBatcher {
     this.flush();
   }
 
-  private dropPending() {
-    if (this.timer !== null) {
-      window.clearTimeout(this.timer);
-      this.timer = null;
-    }
-
-    this.pending = [];
-    this.pendingBytes = 0;
-    this.lastWrite = performance.now();
-  }
-
   private scheduleFlush() {
     if (this.timer !== null) {
       return;
@@ -251,7 +268,7 @@ function shouldWriteImmediately(lastWrite: number, now: number) {
 }
 
 function byteLength(value: string | Uint8Array) {
-  return typeof value === "string" ? value.length : value.byteLength;
+  return typeof value === "string" ? textEncoder.encode(value).byteLength : value.byteLength;
 }
 
 function coalesceWrites(

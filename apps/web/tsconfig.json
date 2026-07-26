@@ -15,7 +15,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["@cloudflare/workers-types"]
+    "types": ["@cloudflare/workers-types", "vite/client"]
   },
   "include": ["src", "vite.config.ts"]
 }

@@ -1,189 +1,23 @@
-name: Build Agents
+name: Build Agent
 
 on:
   pull_request:
-  push:
-    tags:
-      - "v*"
-    branches:
-      - main
     paths:
       - "agent/**"
-      - "agent-zig/**"
-      - "agent-rust/**"
+      - ".github/workflows/build-agents.yml"
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths:
+      - "agent/**"
       - ".github/workflows/build-agents.yml"
   workflow_dispatch:
 
 jobs:
-  detect-changes:
-    name: Detect Agent Changes
-    runs-on: ubuntu-24.04
-    outputs:
-      agent: ${{ steps.filter.outputs.agent }}
-      agent_zig: ${{ steps.filter.outputs.agent_zig }}
-      agent_rust: ${{ steps.filter.outputs.agent_rust }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            agent:
-              - 'agent/**'
-            agent_zig:
-              - 'agent-zig/**'
-            agent_rust:
-              - 'agent-rust/**'
-
-  build-go:
-    name: Go ${{ matrix.goos }}-${{ matrix.goarch }}
-    needs: detect-changes
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v') ||
-      needs.detect-changes.outputs.agent == 'true'
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: darwin
-            goarch: amd64
-            ext: ""
-          - goos: darwin
-            goarch: arm64
-            ext: ""
-          - goos: linux
-            goarch: amd64
-            ext: ""
-          - goos: linux
-            goarch: arm64
-            ext: ""
-          - goos: windows
-            goarch: amd64
-            ext: ".exe"
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: agent/go.mod
-          cache: true
-          cache-dependency-path: agent/go.sum
-
-      - name: Build Go agent
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mkdir -p dist
-          asset="ttys-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
-
-          cd agent
-          GOOS="${{ matrix.goos }}" \
-          GOARCH="${{ matrix.goarch }}" \
-          CGO_ENABLED=0 \
-          go build -trimpath -ldflags="-s -w" -o "../dist/${asset}" ./cmd/ttys-agent
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: go-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*
-          if-no-files-found: error
-
-  build-zig:
-    name: Zig ${{ matrix.id }}
-    needs: detect-changes
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v') ||
-      needs.detect-changes.outputs.agent_zig == 'true'
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - id: darwin-amd64
-            runner: macos-15-intel
-            target: ""
-            ext: ""
-            asset: ttys-agent-zig-darwin-amd64
-          - id: darwin-arm64
-            runner: macos-15
-            target: ""
-            ext: ""
-            asset: ttys-agent-zig-darwin-arm64
-          - id: linux-amd64
-            runner: ubuntu-24.04
-            target: x86_64-linux-gnu
-            ext: ""
-            asset: ttys-agent-zig-linux-amd64
-          - id: linux-arm64
-            runner: ubuntu-24.04
-            target: aarch64-linux-gnu
-            ext: ""
-            asset: ttys-agent-zig-linux-arm64
-          - id: windows-amd64
-            runner: windows-2025
-            target: x86_64-windows-gnu
-            ext: ".exe"
-            asset: ttys-agent-zig-windows-amd64.exe
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
-
-      - uses: actions/cache@v5
-        with:
-          path: agent-zig/.zig-cache
-          key: zig-${{ matrix.id }}-0.16.0-${{ hashFiles('agent-zig/build.zig', 'agent-zig/build.zig.zon', 'agent-zig/src/**') }}
-          restore-keys: |
-            zig-${{ matrix.id }}-0.16.0-
-
-      - name: Build Zig agent
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mkdir -p dist
-          cd agent-zig
-
-          args=(
-            "--summary"
-            "all"
-          )
-
-          if [[ -n "${{ matrix.target }}" ]]; then
-            args=("-Dtarget=${{ matrix.target }}" "${args[@]}")
-          fi
-
-          export ZIG_GLOBAL_CACHE_DIR="${PWD}/.zig-cache"
-          export ZIG_LOCAL_CACHE_DIR="${PWD}/.zig-cache"
-
-          zig build "${args[@]}"
-
-          cp "zig-out/bin/ttys-agent-zig${{ matrix.ext }}" "../dist/${{ matrix.asset }}"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: zig-${{ matrix.id }}
-          path: dist/*
-          if-no-files-found: error
-
-  build-rust:
+  build-agent:
     name: Rust ${{ matrix.id }}
-    needs: detect-changes
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v') ||
-      needs.detect-changes.outputs.agent_rust == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -193,32 +27,38 @@ jobs:
             runner: macos-15-intel
             target: x86_64-apple-darwin
             ext: ""
-            asset: ttys-agent-rust-darwin-amd64
+            asset: ttys-agent-darwin-amd64
+            test_native: true
           - id: darwin-arm64
             runner: macos-15
             target: aarch64-apple-darwin
             ext: ""
-            asset: ttys-agent-rust-darwin-arm64
+            asset: ttys-agent-darwin-arm64
+            test_native: true
           - id: linux-amd64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             ext: ""
-            asset: ttys-agent-rust-linux-amd64
+            asset: ttys-agent-linux-amd64
+            test_native: true
           - id: linux-arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             ext: ""
-            asset: ttys-agent-rust-linux-arm64
+            asset: ttys-agent-linux-arm64
+            test_native: true
           - id: windows-amd64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             ext: ".exe"
-            asset: ttys-agent-rust-windows-amd64.exe
+            asset: ttys-agent-windows-amd64.exe
+            test_native: true
           - id: windows-arm64
             runner: windows-2025
             target: aarch64-pc-windows-msvc
             ext: ".exe"
-            asset: ttys-agent-rust-windows-arm64.exe
+            asset: ttys-agent-windows-arm64.exe
+            test_native: false
 
     steps:
       - uses: actions/checkout@v6
@@ -226,41 +66,42 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: agent-rust
+          workspaces: agent
 
-      - name: Build Rust agent
+      - name: Test native target
+        if: matrix.test_native
+        working-directory: agent
         shell: bash
         run: |
           set -euo pipefail
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test --release --all-targets
 
+      - name: Build release agent
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p dist
-          cd agent-rust
-          cargo build --release --target "${{ matrix.target }}"
-          cp "target/${{ matrix.target }}/release/ttys-agent-rust${{ matrix.ext }}" "../dist/${{ matrix.asset }}"
+          cd agent
+          cargo build --locked --release --target "${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/ttys-agent${{ matrix.ext }}" "../dist/${{ matrix.asset }}"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rust-${{ matrix.id }}
+          name: agent-${{ matrix.id }}
           path: dist/*
           if-no-files-found: error
 
   bundle-release:
     name: Bundle Release Assets
     runs-on: ubuntu-24.04
-    needs:
-      - build-go
-      - build-zig
-      - build-rust
-    if: |
-      always() &&
-      (
-        needs.build-go.result == 'success' ||
-        needs.build-zig.result == 'success' ||
-        needs.build-rust.result == 'success'
-      )
+    needs: build-agent
+    if: success()
     permissions:
       contents: write
 

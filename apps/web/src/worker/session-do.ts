@@ -21,6 +21,10 @@ type TerminalSize = {
   cols: number;
   rows: number;
 };
+type TerminalProfile = {
+  platform: "unix" | "windows";
+  pty?: "conpty";
+};
 type SessionRecord = {
   state: SessionState;
   currentControllerId: string | null;
@@ -74,6 +78,7 @@ export class TTYSession extends DurableObject {
   private viewers = new Map<WebSocket, ViewerInfo>();
   private hostConnected = false;
   private hostTerminalSize: TerminalSize | null = null;
+  private hostTerminalProfile: TerminalProfile | null = null;
   private buffer: ArrayBuffer[] = [];
   private bufferBytes = 0;
   private record: SessionRecord = createInitialSessionRecord();
@@ -139,6 +144,8 @@ export class TTYSession extends DurableObject {
       this.ctx.acceptWebSocket(server, [role]);
       this.host = server;
       this.hostConnected = true;
+      this.hostTerminalSize = null;
+      this.hostTerminalProfile = null;
       await this.updateRecord((record) => {
         record.hostDisconnectDeadline = null;
         record.state = "active";
@@ -167,8 +174,10 @@ export class TTYSession extends DurableObject {
         payload: this.snapshot(server, role),
       }),
     );
-    if (role === "viewer" && !this.hostTerminalSize) {
-      this.sendHost(JSON.stringify({ type: "terminal.size.request", payload: null }));
+    if (role === "host") {
+      this.requestHostTerminalDetails();
+    } else if (role === "viewer" && (!this.hostTerminalSize || !this.hostTerminalProfile)) {
+      this.requestHostTerminalDetails();
     }
     if (role === "viewer" && this.buffer.length > 0) {
       for (const chunk of this.buffer) {
@@ -236,6 +245,9 @@ export class TTYSession extends DurableObject {
       this.replaceViewerConnection(viewer, "replaced by newer viewer");
     }
 
+    if (this.hostConnected && (!this.hostTerminalSize || !this.hostTerminalProfile)) {
+      this.requestHostTerminalDetails();
+    }
     return this.reconcileRecordWithSockets();
   }
 
@@ -336,6 +348,11 @@ export class TTYSession extends DurableObject {
           await this.touchSession();
           return;
         }
+        if (frame?.type === "terminal.profile") {
+          this.handleHostTerminalProfile(frame.payload);
+          await this.touchSession();
+          return;
+        }
         return;
       }
 
@@ -389,6 +406,11 @@ export class TTYSession extends DurableObject {
       await this.touchSession();
       return;
     }
+    if (frame?.type === "terminal.profile.request") {
+      this.sendHost(JSON.stringify({ type: "terminal.profile.request", payload: null }));
+      await this.touchSession();
+      return;
+    }
   }
 
   private async handleClose(role: SessionRole, socket: WebSocket) {
@@ -415,6 +437,7 @@ export class TTYSession extends DurableObject {
       record.state = "ready";
     });
     this.hostTerminalSize = null;
+    this.hostTerminalProfile = null;
     this.broadcastStatus();
   }
 
@@ -432,6 +455,23 @@ export class TTYSession extends DurableObject {
     }
 
     this.hostTerminalSize = size;
+    this.broadcastStatus();
+  }
+
+  private handleHostTerminalProfile(payload: unknown) {
+    const profile = normalizeTerminalProfile(payload);
+    if (!profile) {
+      return;
+    }
+
+    if (
+      this.hostTerminalProfile?.platform === profile.platform &&
+      this.hostTerminalProfile?.pty === profile.pty
+    ) {
+      return;
+    }
+
+    this.hostTerminalProfile = profile;
     this.broadcastStatus();
   }
 
@@ -569,6 +609,7 @@ export class TTYSession extends DurableObject {
       hostDisconnectDeadline: this.record.hostDisconnectDeadline,
       pendingRequestExpiresAt: this.record.pendingRequestExpiresAt,
       terminalSize: this.hostTerminalSize,
+      terminalProfile: this.hostTerminalProfile,
     };
   }
 
@@ -617,6 +658,11 @@ export class TTYSession extends DurableObject {
 
     void this.clearHost();
     return false;
+  }
+
+  private requestHostTerminalDetails() {
+    this.sendHost(JSON.stringify({ type: "terminal.profile.request", payload: null }));
+    this.sendHost(JSON.stringify({ type: "terminal.size.request", payload: null }));
   }
 
   private sendViewer(viewer: ViewerInfo, message: string | ArrayBuffer) {
@@ -811,6 +857,17 @@ function normalizeTerminalSize(payload: unknown): TerminalSize | null {
     return null;
   }
   return { cols, rows };
+}
+
+function normalizeTerminalProfile(payload: unknown): TerminalProfile | null {
+  const profile = payload as { platform?: unknown; pty?: unknown };
+  if (profile?.platform === "unix") {
+    return { platform: "unix" };
+  }
+  if (profile?.platform === "windows" && profile.pty === "conpty") {
+    return { platform: "windows", pty: "conpty" };
+  }
+  return null;
 }
 
 function randomViewerToken() {
