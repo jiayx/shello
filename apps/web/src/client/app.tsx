@@ -811,10 +811,10 @@ export function App() {
   return (
     <main className="terminal-workspace">
       <header className="workspace-toolbar">
-        <div className="flex shrink-0 items-center gap-2">
+        <a href="/" aria-label={`Shello · ${t("Go home")}`} title={t("Go home")} className="flex shrink-0 items-center gap-2 rounded-md transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-400">
           <img src="/logo.svg" alt="" className="h-7 w-7" />
           <h1 className="text-base font-semibold tracking-tight text-amber-400">Shello</h1>
-        </div>
+        </a>
         <span className="text-xs text-stone-400" role="status">{t(connectionLabel)}</span>
         <span className="hidden text-xs text-stone-500 sm:inline">{sessionId || t("One command. Share your shell.")}</span>
         <div className="workspace-actions">
