@@ -103,7 +103,6 @@ test('stale host cannot end or write into the current session', async () => {
 
 test('snapshot routing survives hibernation and rejects replaced connection replies', async () => {
   const { session, host, viewer } = await fixture();
-  assert.equal(session.buffer.length, 0);
   await session.webSocketMessage(host, frame('terminal.snapshot', { requestId: 'old-connection', data: 'old' }));
   assert.equal(viewer.messages.length, 0);
   await session.webSocketMessage(host, frame('terminal.snapshot', { requestId: 'connection-1', data: 'prompt $ ' }));
@@ -119,4 +118,42 @@ test('hibernation preserves ended pairing codes and does not restart the grace c
   assert.equal(session.record.state, 'ended');
   assert.equal(session.record.hostDisconnectDeadline, null);
   assert.equal(viewer.closed, null);
+});
+
+test('closed records remain closed even when the end reason is a host exit', async () => {
+  const initial = await fixture();
+  const record = { ...initial.session.record, state: 'closed', endReason: 'host ended' };
+  const { session } = await fixture(record);
+  assert.equal(session.record.state, 'closed');
+  const response = await session.fetch(new Request('https://session.internal/connect/host'));
+  assert.equal(response.status, 410);
+});
+
+test('controller can release input permission while keeping the shared shell connected', async () => {
+  const { session, host, viewer, store } = await fixture();
+  session.record.currentControllerId = 'viewer-1';
+  session.record.controlLeaseExpiresAt = Date.now() + 60_000;
+  await session.webSocketMessage(viewer, frame('control.release'));
+  assert.equal(store.get('session').currentControllerId, null);
+  assert.equal(session.record.controlLeaseExpiresAt, null);
+  assert.equal(session.record.state, 'active');
+  assert.equal(session.hostConnected, true);
+  assert.equal(host.closed, null);
+  assert.equal(viewer.closed, null);
+  assert.equal(JSON.parse(viewer.messages.at(-1)).payload.canWrite, false);
+  host.messages.length = 0;
+  await session.webSocketMessage(viewer, Uint8Array.of(2, 65).buffer);
+  assert.equal(host.messages.length, 0);
+});
+
+test('read-only viewers cannot release another viewer’s control; the host can revoke it', async () => {
+  const { session, host, viewer } = await fixture();
+  session.record.currentControllerId = 'another-viewer';
+  session.record.controlLeaseExpiresAt = Date.now() + 60_000;
+  await session.webSocketMessage(viewer, frame('control.release'));
+  assert.equal(session.record.currentControllerId, 'another-viewer');
+  await session.webSocketMessage(host, frame('control.revoke'));
+  assert.equal(session.record.currentControllerId, null);
+  assert.equal(session.record.state, 'active');
+  assert.equal(host.closed, null);
 });

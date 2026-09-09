@@ -90,8 +90,8 @@ body {
 .start-button { margin-top: 28px; padding: 10px 18px; background: #fbbf24; border-color: #fbbf24; color: #1c1917; font-size: 14px; font-weight: 600; }
 .start-button:hover:not(:disabled) { background: #fcd34d; border-color: #fcd34d; }
 .workspace-status { display: flex; flex: none; align-items: center; gap: 16px; padding: 6px 16px; border-top: 1px solid #292524; background: #141211; color: #a8a29e; font-size: 11px; }
-/* Status semantics: teal = viewing, blue = control, amber = attention, gray = neutral. */
-[data-tone="ready"] { --status-accent: #99d1c3; --status-surface: #142723; }
+/* Status semantics: green = viewing, blue = control, amber = attention, gray = neutral. */
+[data-tone="ready"] { --status-accent: #c2d59b; --status-surface: #242b1b; }
 [data-tone="control"] { --status-accent: #a6ccec; --status-surface: #14212c; }
 [data-tone="attention"] { --status-accent: #e8ce96; --status-surface: #292314; }
 [data-tone="neutral"] { --status-accent: #b9b5b1; --status-surface: #141211; }
@@ -110,6 +110,8 @@ body {
   .workspace-setup { padding: 20px; }
   .workspace-status { padding: 6px 8px; gap: 8px; max-height: 20dvh; overflow: auto; }
 }
+
+.shello-terminal-surface { background: #111111; }
 
 /* Keep the visual thumb slim even when the host terminal canvas is enlarged.
    The original slider remains the full-size drag target. */

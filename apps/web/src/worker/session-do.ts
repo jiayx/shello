@@ -47,7 +47,7 @@ type SocketAttachment =
       role: "viewer";
       viewerId: string;
       viewerToken: string;
-      snapshotRequestId?: string;
+      snapshotRequestId: string;
     };
 type Env = Record<string, unknown>;
 
@@ -57,7 +57,6 @@ const SESSION_MAX_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_RENEW_THRESHOLD_MS = 30 * 60 * 1000;
 const HOST_DISCONNECT_GRACE_MS = 3 * 60 * 1000;
 const PENDING_REQUEST_TIMEOUT_MS = 30 * 1000;
-const REPLAY_BUFFER_MAX_BYTES = 2 * 1024 * 1024;
 const SESSION_RECORD_KEY = "session";
 
 function createInitialSessionRecord(state: SessionState = "idle"): SessionRecord {
@@ -84,8 +83,6 @@ export class TTYSession extends DurableObject {
   private hostConnected = false;
   private hostTerminalSize: TerminalSize | null = null;
   private hostTerminalProfile: TerminalProfile | null = null;
-  private buffer: ArrayBuffer[] = [];
-  private bufferBytes = 0;
   private record: SessionRecord = createInitialSessionRecord();
   private persistQueue: Promise<void> = Promise.resolve();
 
@@ -155,8 +152,6 @@ export class TTYSession extends DurableObject {
       this.hostConnected = true;
       this.hostTerminalSize = null;
       this.hostTerminalProfile = null;
-      this.buffer = [];
-      this.bufferBytes = 0;
       await this.updateRecord((record) => {
         record.hostDisconnectDeadline = null;
         record.endReason = null;
@@ -196,13 +191,6 @@ export class TTYSession extends DurableObject {
       this.requestHostTerminalDetails();
     } else if (role === "viewer" && (!this.hostTerminalSize || !this.hostTerminalProfile)) {
       this.requestHostTerminalDetails();
-    }
-    if (role === "viewer" && this.buffer.length > 0) {
-      for (const chunk of this.buffer) {
-        if (!this.sendSocket(server, chunk)) {
-          break;
-        }
-      }
     }
     for (const target of role === "host" ? this.viewers.keys() : [server]) {
       const attachment = target.deserializeAttachment() as SocketAttachment;
@@ -320,18 +308,7 @@ export class TTYSession extends DurableObject {
       return;
     }
 
-    this.record = {
-      ...record,
-      viewerIdentities: record.viewerIdentities ?? {},
-      endReason: record.endReason ?? null,
-      generation: record.generation ?? 0,
-    };
-    // Sharing ended under the earlier lifecycle is still a reusable pairing code.
-    if (this.record.state === "closed" &&
-        ["host ended", "host disconnected"].includes(this.record.endReason ?? "") &&
-        Date.now() < this.record.sessionExpiresAt && Date.now() < this.record.maxExpiresAt) {
-      this.record.state = "ended";
-    }
+    this.record = record;
   }
 
   private async resolveViewerIdentity(request: Request) {
@@ -444,7 +421,6 @@ export class TTYSession extends DurableObject {
 
       if (socket !== this.host || !this.hostConnected) return;
       void this.touchSession();
-      this.pushBuffer(buffer);
 
       for (const viewer of this.viewers.values()) {
         this.sendViewer(viewer, buffer);
@@ -472,6 +448,12 @@ export class TTYSession extends DurableObject {
     }
 
     const frame = parseEnvelope(data);
+    if (frame?.type === "control.release") {
+      if (this.canWrite(socket)) {
+        await this.handleControlRevoke();
+      }
+      return;
+    }
     if (frame?.type === "control.request") {
       await this.handleControlRequest(socket, frame.payload);
       await this.touchSession();
@@ -637,17 +619,6 @@ export class TTYSession extends DurableObject {
   private canWrite(socket: WebSocket) {
     const viewer = this.viewers.get(socket);
     return this.record.state === "active" && this.hostConnected && Boolean(viewer) && viewer?.id === this.record.currentControllerId;
-  }
-
-  private pushBuffer(chunk: ArrayBuffer) {
-    const copy = chunk.slice(0);
-    this.buffer.push(copy);
-    this.bufferBytes += copy.byteLength;
-
-    while (this.bufferBytes > REPLAY_BUFFER_MAX_BYTES && this.buffer.length > 0) {
-      const removed = this.buffer.shift();
-      this.bufferBytes -= removed?.byteLength ?? 0;
-    }
   }
 
   private snapshot(socket?: WebSocket, role?: SessionRole) {
@@ -863,8 +834,6 @@ export class TTYSession extends DurableObject {
     this.hostConnected = false;
     this.hostTerminalSize = null;
     this.hostTerminalProfile = null;
-    this.buffer = [];
-    this.bufferBytes = 0;
     this.broadcastStatus();
     this.host?.close(4000, this.record.endReason ?? "sharing ended");
     this.host = null;
@@ -895,8 +864,6 @@ export class TTYSession extends DurableObject {
     this.host = null;
     for (const viewer of this.viewers.values()) viewer.socket.close(4000, reason);
     this.viewers.clear();
-    this.buffer = [];
-    this.bufferBytes = 0;
     this.hostTerminalSize = null;
     this.hostTerminalProfile = null;
   }

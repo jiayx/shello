@@ -142,19 +142,6 @@ impl Pty {
         }
         Ok(())
     }
-
-    pub fn resize(&self, size: TerminalSize) -> Result<()> {
-        unsafe {
-            let coord = COORD {
-                X: size.cols as i16,
-                Y: size.rows as i16,
-            };
-            if ResizePseudoConsole(self.console, coord) != 0 {
-                return Err(last_error("ResizePseudoConsole failed"));
-            }
-        }
-        Ok(())
-    }
 }
 
 impl Drop for Pty {

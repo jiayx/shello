@@ -1,6 +1,5 @@
 import { t } from "./i18n";
 import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
 export type TerminalSize = {
@@ -16,7 +15,6 @@ export type HostTerminalProfile = {
 export type TerminalController = {
   dispose: () => void;
   focus: () => void;
-  fit: () => { cols: number; rows: number };
   onData: (handler: (value: string) => void) => () => void;
   reset: () => void;
   resize: (size: TerminalSize) => void;
@@ -38,6 +36,7 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
   const viewport = document.createElement("div");
   const surface = document.createElement("div");
   viewport.className = "shello-terminal-viewport";
+  surface.className = "shello-terminal-surface";
   viewport.dataset.cursorHidden = "true";
   viewport.style.width = "100%";
   viewport.style.height = "100%";
@@ -63,14 +62,12 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
       foreground: "#f5f5f4",
       cursor: "#fbbf24",
       selectionBackground: "#44403c",
-      scrollbarSliderBackground: "transparent",
-      scrollbarSliderHoverBackground: "transparent",
-      scrollbarSliderActiveBackground: "transparent",
+      // xterm accepts hex alpha colors, but not the CSS keyword "transparent".
+      scrollbarSliderBackground: "#00000000",
+      scrollbarSliderHoverBackground: "#00000000",
+      scrollbarSliderActiveBackground: "#00000000",
     },
   });
-  const fit = new FitAddon();
-
-  terminal.loadAddon(fit);
   terminal.open(surface);
   const renderSubscription = terminal.onRender(() => updateScale());
   if (initialSize) {
@@ -84,7 +81,7 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
   let lastHeight = -1;
   let currentSize: TerminalSize = initialSize ?? { cols: terminal.cols, rows: terminal.rows };
 
-  function scheduleFit(width: number, height: number) {
+  function scheduleScale(width: number, height: number) {
     if (width === lastWidth && height === lastHeight) {
       return;
     }
@@ -104,7 +101,7 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
 
   function handleWindowResize() {
     const bounds = viewport.getBoundingClientRect();
-    scheduleFit(bounds.width, bounds.height);
+    scheduleScale(bounds.width, bounds.height);
   }
 
   function updateScale() {
@@ -122,7 +119,11 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
     // available area by a pixel, producing an extra scrollbar or clipping a row.
     const available = viewport.getBoundingClientRect();
     if (available.width <= 0 || available.height <= 0) return;
-    const scale = Math.min(available.width / width, available.height / height);
+    // Keep an 8px visual gutter without changing the host terminal dimensions.
+    const scale = Math.min(
+      Math.max(1, available.width - 16) / width,
+      Math.max(1, available.height - 16) / height,
+    );
     viewport.style.setProperty("--terminal-scale", String(scale));
     surface.style.width = `${width}px`;
     surface.style.height = `${height}px`;
@@ -158,14 +159,6 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
     },
     focus() {
       terminal.focus();
-    },
-    fit() {
-      fit.fit();
-      updateScale();
-      return {
-        cols: terminal.cols,
-        rows: terminal.rows,
-      };
     },
     onData(handler) {
       const disposable = terminal.onData(handler);

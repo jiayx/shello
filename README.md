@@ -30,8 +30,9 @@ Send the printed URL to the other person. You can also create a session on
 
 ## Using Shello
 
-- Viewers are read-only by default. The host presses `Y` to approve a control request;
-  `N`, Enter, Ctrl-C, or Escape rejects it.
+- Viewers are read-only by default. The host clicks `[Y:allow]` / `[N:deny]` in the
+  status bar to approve or reject a request. `Y` approves; `N`, Enter, Ctrl-C, or Escape rejects it. The viewer can release control from the
+  toolbar; the host can revoke it by clicking the status bar’s “Click to revoke” action.
 - A fixed status bar shows sharing and control status. Ordinary shells support
   scrollback; full-screen terminal apps use their own input modes.
 - The browser scales the terminal to fit without changing the host's dimensions.

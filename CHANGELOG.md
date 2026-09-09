@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-09
+
+### Added
+
+- Host status-bar mouse actions for approving, rejecting, and revoking remote control.
+- Web control release without disconnecting the shared shell.
+
+### Changed
+
+- Distinct status colors for read-only access, active control, and pending requests.
+- Centered terminal display with a thin scrollbar and a small surrounding gutter.
+- Current-protocol snapshot synchronization with automatic retry on timeout.
+- Agent version appears in the shared shell and fatal error messages.
+
+### Fixed
+
+- Overlapping xterm scrollbar styles.
+- Duplicate Agent startup output, terminal sizing, and initial rendering.
+- Trace-file initialization errors interfering with the shared terminal display.
+
 ## [0.3.1] - 2026-09-09
 
 ### Added

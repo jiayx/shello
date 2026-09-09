@@ -37,8 +37,8 @@ type SessionStatus = {
   hasPendingControlRequest: boolean;
   sessionExpiresAt: number | null;
   hostDisconnectDeadline: number | null;
-  endReason?: string | null;
-  generation?: number;
+  endReason: string | null;
+  generation: number;
   pendingRequestExpiresAt: number | null;
   terminalSize: TerminalSize | null;
   terminalProfile: HostTerminalProfile | null;
@@ -48,7 +48,7 @@ type PlatformTab = "macos" | "linux" | "windows";
 type TransportState = "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 type HostState = "waiting" | "online" | "reconnecting" | "offline";
 type CopyLabel = "Copy" | "Copied" | "Copy failed";
-const TERMINAL_SIZE_FALLBACK_MS = 750;
+const TERMINAL_SYNC_TIMEOUT_MS = 10_000;
 const MAX_PENDING_TERMINAL_OUTPUT_BYTES = 4 * 1024 * 1024;
 const MAX_STDIN_FRAME_BYTES = 32 * 1024;
 const MAX_WEBSOCKET_BUFFERED_INPUT_BYTES = 512 * 1024;
@@ -234,6 +234,15 @@ export function App() {
       }
     }
 
+    function restartTerminalSync() {
+      clearTerminalReadyTimer();
+      pendingOutput = [];
+      pendingOutputBytes = 0;
+      terminalReady = false;
+      setStatusNote("Terminal synchronization timed out. Reconnecting...");
+      activeSocket?.close(1013, "terminal synchronization required");
+    }
+
     function stageTtyOutput(payload: Uint8Array) {
       if (terminalReady) {
         terminal.current?.write(payload);
@@ -245,8 +254,7 @@ export function App() {
       pendingOutputBytes += copy.byteLength;
 
       if (pendingOutputBytes >= MAX_PENDING_TERMINAL_OUTPUT_BYTES) {
-        setStatusNote("Host size is delayed; rendering with the compatible fallback size.");
-        flushPendingOutput();
+        restartTerminalSync();
         return;
       }
 
@@ -254,10 +262,9 @@ export function App() {
         terminalReadyTimer = window.setTimeout(() => {
           terminalReadyTimer = null;
           if (!terminalReady) {
-            setStatusNote("Host size is delayed; rendering with the compatible fallback size.");
-            flushPendingOutput();
+            restartTerminalSync();
           }
-        }, TERMINAL_SIZE_FALLBACK_MS);
+        }, TERMINAL_SYNC_TIMEOUT_MS);
       }
     }
 
@@ -378,6 +385,10 @@ export function App() {
         if (!attempt.ownsSocket(ws)) {
           return;
         }
+        clearTerminalReadyTimer();
+        pendingOutput = [];
+        pendingOutputBytes = 0;
+        terminalReady = false;
         activeSocket = null;
         if (socket.current === ws) {
           socket.current = null;
@@ -505,7 +516,7 @@ export function App() {
     }
 
     function applySessionStatus(status: SessionStatus) {
-      if (terminalGeneration !== undefined && status.generation !== undefined && terminalGeneration !== status.generation) {
+      if (terminalGeneration !== undefined && terminalGeneration !== status.generation) {
         pendingOutput = [];
         pendingOutputBytes = 0;
         terminalReady = false;
@@ -694,6 +705,13 @@ export function App() {
     }
   }
 
+  function releaseControl() {
+    if (socket.current?.readyState !== WebSocket.OPEN || !canWriteRef.current) return;
+    socket.current.send(JSON.stringify({ type: "control.release", payload: {} }));
+    canWriteRef.current = false;
+    terminal.current?.focus();
+  }
+
   function requestControl() {
     if (socket.current?.readyState !== WebSocket.OPEN || requestingControl || !canRequestControl) {
       return;
@@ -723,7 +741,7 @@ export function App() {
 
   let requestControlLabel = "Request control";
   if (sessionStatus?.canWrite) {
-    requestControlLabel = "Control active";
+    requestControlLabel = "Release control";
   } else if (requestingControl) {
     requestControlLabel = "Request pending...";
   } else if (sessionStatus?.hasPendingControlRequest) {
@@ -773,10 +791,8 @@ export function App() {
     transportState === "closed" || sessionStatus?.hostState === "offline" ? "neutral"
       : transportState === "error" || transportState === "reconnecting" || sessionStatus?.hostState === "reconnecting" ? "attention"
       : transportState !== "connected" || sessionStatus?.hostState === "waiting" ? "neutral"
-      : statusNote ? "neutral"
       : sessionStatus?.canWrite ? "control"
-      : requestingControl || sessionStatus?.hasPendingControlRequest ? "attention"
-      : sessionStatus?.controllerViewerId ? "control"
+      : requestingControl || sessionStatus?.pendingControlRequest ? "attention"
       : "ready";
   const connectionTone = transportState === "connected" ? "ready"
     : transportState === "reconnecting" || transportState === "error" ? "attention" : "neutral";
@@ -824,7 +840,7 @@ export function App() {
           }} disabled={creating}>{t(createSessionLabel)}</button>
           {sessionId && <>
             <button className="workspace-button" onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel === "Copy" ? t("Copy link") : t(shareCopyLabel)}</button>
-            <button className="workspace-button control-button" data-guided={showControlHint && !sessionStatus?.canWrite && canRequestControl && !requestingControl} data-tone={statusTone} onClick={requestControl} disabled={!canRequestControl || requestingControl}>{t(requestControlLabel)}</button>
+            <button className="workspace-button control-button" data-guided={showControlHint && !sessionStatus?.canWrite && canRequestControl && !requestingControl} data-tone={statusTone} onClick={sessionStatus?.canWrite ? releaseControl : requestControl} disabled={transportState !== "connected" || (!sessionStatus?.canWrite && (!canRequestControl || requestingControl))}>{t(requestControlLabel)}</button>
             <button className="workspace-button" aria-expanded={detailsOpen} aria-controls="session-details" aria-haspopup="dialog" onClick={() => setDetailsOpen(!detailsOpen)}>{detailsOpen ? t("Hide details") : t("Session details")}</button>
           </>}
         </div>
@@ -1071,13 +1087,7 @@ function readViewerToken(sessionId: string) {
   if (typeof window === "undefined") {
     return null;
   }
-  const key = viewerTokenStorageKey(sessionId);
-  const token = window.sessionStorage.getItem(key);
-  if (token) return token;
-  // Preserve viewer identity and control when upgrading an existing browser session.
-  const legacyToken = window.sessionStorage.getItem(`ttys.viewerToken.${sessionId}`);
-  if (legacyToken) window.sessionStorage.setItem(key, legacyToken);
-  return legacyToken;
+  return window.sessionStorage.getItem(viewerTokenStorageKey(sessionId));
 }
 
 function storeViewerToken(sessionId: string, token: string | null) {

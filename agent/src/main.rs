@@ -94,7 +94,6 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    eprintln!("shello-agent v{AGENT_VERSION}");
     let connect = resolve_connection(&config)?;
     let shell = config.shell.unwrap_or_else(default_shell);
     let size = terminal_size()?;
@@ -110,6 +109,7 @@ fn run() -> Result<()> {
         connect.viewer_url
     );
 
+    let trace = trace_writer();
     let raw_terminal = RawTerminal::enter()?;
 
     let (out_tx, out_rx) = output::channel(OUTPUT_QUEUE_CAPACITY);
@@ -122,7 +122,6 @@ fn run() -> Result<()> {
     let modal = Arc::new(Mutex::new(HostTerminal::new()));
 
     let _screen_guard = terminal::ScreenGuard(Arc::clone(&modal));
-    pty.resize(content_size(size))?;
     modal.lock().unwrap().start(size, banner.as_bytes())?;
     out_tx.push(terminal_size_frame(content_size(size)));
     out_tx.push(Outgoing::Tty(banner.into_bytes()));
@@ -147,7 +146,7 @@ fn run() -> Result<()> {
     let pty_modal = Arc::clone(&modal);
     let replies_tx = pty_tx.clone();
     thread::spawn(move || {
-        let _ = pty_output_loop(pty_out, pty_sender, pty_modal, trace_writer(), replies_tx);
+        let _ = pty_output_loop(pty_out, pty_sender, pty_modal, trace, replies_tx);
         let _ = pty_done.send(());
     });
 
@@ -190,7 +189,7 @@ fn run() -> Result<()> {
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("shello-agent: {error}");
+        eprintln!("shello-agent v{AGENT_VERSION}: {error}");
         std::process::exit(1);
     }
 }

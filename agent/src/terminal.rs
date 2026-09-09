@@ -12,7 +12,7 @@ use std::time::Duration;
 const TRACE_ENV: &str = "SHELLO_TRACE";
 const SCROLLBACK_LINES: usize = 10_000;
 // Muted backgrounds keep persistent status informative rather than alarming.
-const STATUS_READY: &str = "38;5;152;48;5;23";
+const STATUS_READY: &str = "38;5;150;48;5;22";
 const STATUS_CONTROL: &str = "38;5;153;48;5;24";
 const STATUS_ATTENTION: &str = "38;5;223;48;5;58";
 const STATUS_NEUTRAL: &str = "38;5;252;48;5;238";
@@ -123,6 +123,9 @@ pub(crate) fn stdin_loop(
                 ModalInput::Consumed => {}
                 ModalInput::Decision(decision) => {
                     let payload = match decision {
+                        ModalDecision::Revoke => {
+                            serde_json::json!({"type":"control.revoke","payload":{}})
+                        }
                         ModalDecision::Approve(request) => {
                             serde_json::json!({"type":"control.approve","payload":{"viewerId":request.viewer_id,"leaseSeconds":request.lease_seconds}})
                         }
@@ -176,19 +179,19 @@ impl InputDecoder {
     }
 }
 
-fn mouse_report(bytes: &[u8]) -> Option<(u16, u16, bool)> {
+fn mouse_report(bytes: &[u8]) -> Option<(u16, u16, u16, bool)> {
     let text = std::str::from_utf8(bytes).ok()?;
     let body = text.strip_prefix("\x1b[<")?;
     let pressed = body.ends_with('M');
     let body = body.strip_suffix('M').or_else(|| body.strip_suffix('m'))?;
     let mut fields = body.split(';');
     let button = fields.next()?.parse().ok()?;
-    let _column: u16 = fields.next()?.parse().ok()?;
+    let column = fields.next()?.parse().ok()?;
     let row = fields.next()?.parse().ok()?;
     if fields.next().is_some() {
         return None;
     }
-    Some((button, row, pressed))
+    Some((button, column, row, pressed))
 }
 
 pub(crate) fn pty_input_loop(mut pty: PtyHandle, input: Receiver<PtyInput>) -> Result<()> {
@@ -250,6 +253,7 @@ enum ModalInput {
 }
 
 enum ModalDecision {
+    Revoke,
     Approve(ControlRequest),
     Reject(ControlRequest),
 }
@@ -388,7 +392,7 @@ impl HostTerminal {
         // Alternate-screen exit restores its saved cursor, attributes and charset.
         let setup = b"\x1b[?1049h\x1b[?6l\x1b[r\x1b(B\x0f\x1b[0m\x1b[2J".to_vec();
         write_local_output(&setup)?;
-        self.set_size(size)?;
+        self.update_size(size);
         self.parser.process(banner);
         self.render()?;
         #[cfg(test)]
@@ -428,6 +432,11 @@ impl HostTerminal {
     }
 
     pub(crate) fn set_size(&mut self, size: TerminalSize) -> Result<()> {
+        self.update_size(size);
+        self.render()
+    }
+
+    fn update_size(&mut self, size: TerminalSize) {
         self.size = TerminalSize {
             cols: size.cols.max(1),
             rows: size.rows.max(1),
@@ -437,7 +446,6 @@ impl HostTerminal {
             .screen_mut()
             .set_size(content.rows, content.cols);
         self.previous_rows.clear();
-        self.render()
     }
 
     fn handle_pty_output(&mut self, chunk: &[u8]) -> Result<Vec<u8>> {
@@ -480,7 +488,26 @@ impl HostTerminal {
         let pasted = self.input_guard.paste;
         let key = self.input_guard.explicit_key(chunk);
         if !pasted {
-            if let Some((button, row, pressed)) = mouse_report(chunk) {
+            if let Some((button, column, row, pressed)) = mouse_report(chunk) {
+                if self.request().is_some() && self.size.rows > 1 && row == self.size.rows {
+                    if pressed && button == 0 && column <= self.size.cols {
+                        match column {
+                            2..=10 => return self.decide_request(true),
+                            12..=19 => return self.decide_request(false),
+                            _ => {}
+                        }
+                    }
+                    return Ok(ModalInput::Consumed);
+                }
+                if self.status.connected
+                    && self.status.controller_viewer_id.is_some()
+                    && self.size.rows > 1
+                    && row == self.size.rows
+                    && pressed
+                    && button == 0
+                {
+                    return Ok(ModalInput::Decision(ModalDecision::Revoke));
+                }
                 if self.owns_scroll() {
                     if self.request().is_none() && pressed && matches!(button & !28, 64 | 65) {
                         self.scroll(button & 1 == 0)?;
@@ -497,13 +524,20 @@ impl HostTerminal {
                 self.render()?;
             }
         }
-        let Some(request) = self.request().cloned() else {
+        if self.request().is_none() {
             return Ok(ModalInput::Passthrough);
-        };
+        }
         let approve = match key {
             Some(b'y' | b'Y') => true,
             Some(b'n' | b'N' | b'\r' | b'\n' | 3 | 27) => false,
             _ => return Ok(ModalInput::Consumed),
+        };
+        self.decide_request(approve)
+    }
+
+    fn decide_request(&mut self, approve: bool) -> Result<ModalInput> {
+        let Some(request) = self.request().cloned() else {
+            return Ok(ModalInput::Consumed);
         };
         self.dismissed_viewer_id = Some(request.viewer_id.clone());
         self.render()?;
@@ -549,7 +583,7 @@ impl HostTerminal {
         if let Some(request) = self.request() {
             return (
                 format!(
-                    " Y:allow N:deny | Shello control request | {}s | {}",
+                    " [Y:allow] [N:deny] | Click or press key | {}s | {}",
                     request.lease_seconds, request.viewer_id
                 ),
                 STATUS_ATTENTION,
@@ -573,7 +607,7 @@ impl HostTerminal {
         if let Some(viewer) = &self.status.controller_viewer_id {
             return (
                 format!(
-                    " Shello | REMOTE CONTROL | {} | {} watching",
+                    " [Click to revoke] REMOTE CONTROL | {} | {} watching",
                     viewer, self.status.viewer_count
                 ),
                 STATUS_CONTROL,
@@ -620,11 +654,15 @@ impl HostTerminal {
                 width = self.size.cols as usize
             )?;
         }
-        // The physical terminal reports wheels to Shello only for ordinary shell
-        // output. The child parser keeps its own modes and live cursor unchanged.
+        // Capture ordinary-shell scrolling and clickable approval/control actions.
+        // Existing application mouse modes remain authoritative.
         let mut physical_modes = vt100::Parser::new(1, 1, 0);
         physical_modes.process(&self.parser.screen().input_mode_formatted());
-        if self.owns_scroll() {
+        if self.owns_scroll()
+            || (self.status.connected
+                && (self.status.controller_viewer_id.is_some() || self.request().is_some())
+                && screen.mouse_protocol_mode() == vt100::MouseProtocolMode::None)
+        {
             physical_modes.process(b"\x1b[?1000h\x1b[?1006h");
         }
         let hidden = screen.scrollback() > 0 || screen.hide_cursor();
@@ -727,6 +765,111 @@ mod tests {
         view.set_scrollback(0);
         lines.extend(view.rows(0, view.size().1));
         lines
+    }
+
+    #[test]
+    fn footer_buttons_approve_or_deny_in_a_fullscreen_terminal() {
+        for (column, approve) in [(2, true), (10, true), (12, false), (19, false)] {
+            let mut terminal = HostTerminal::new();
+            terminal
+                .start(TerminalSize { rows: 6, cols: 80 }, b"")
+                .unwrap();
+            terminal.handle_pty_output(b"\x1b[?1049h").unwrap();
+            terminal
+                .sync_status(SessionStatus {
+                    connected: true,
+                    pending_control_request: Some(ControlRequest {
+                        viewer_id: "viewer".into(),
+                        lease_seconds: 60,
+                    }),
+                    ..SessionStatus::default()
+                })
+                .unwrap();
+            assert_eq!(
+                terminal
+                    .previous_screen
+                    .as_ref()
+                    .unwrap()
+                    .mouse_protocol_mode(),
+                vt100::MouseProtocolMode::PressRelease
+            );
+            // Release, motion, content clicks and the gap between buttons are inert.
+            for report in [
+                b"\x1b[<0;2;6m".as_slice(),
+                b"\x1b[<32;2;6M",
+                b"\x1b[<0;2;2M",
+                b"\x1b[<0;11;6M",
+            ] {
+                assert!(matches!(
+                    terminal.handle_input(report).unwrap(),
+                    ModalInput::Consumed
+                ));
+                assert!(terminal.request().is_some());
+            }
+            let click = format!("\x1b[<0;{column};6M");
+            let decision = terminal.handle_input(click.as_bytes()).unwrap();
+            assert!(
+                matches!(&decision, ModalInput::Decision(ModalDecision::Approve(_))) == approve
+            );
+            assert!(matches!(&decision, ModalInput::Decision(ModalDecision::Reject(_))) != approve);
+            assert!(terminal.request().is_none());
+            assert!(matches!(
+                terminal.handle_input(click.as_bytes()).unwrap(),
+                ModalInput::Consumed
+            ));
+            assert_eq!(
+                terminal
+                    .previous_screen
+                    .as_ref()
+                    .unwrap()
+                    .mouse_protocol_mode(),
+                vt100::MouseProtocolMode::None
+            );
+        }
+    }
+
+    #[test]
+    fn footer_click_revokes_control_without_intercepting_shell_keys() {
+        let mut terminal = HostTerminal::new();
+        terminal
+            .start(TerminalSize { rows: 6, cols: 80 }, b"")
+            .unwrap();
+        terminal.handle_pty_output(b"\x1b[?1049h").unwrap();
+        terminal
+            .sync_status(SessionStatus {
+                connected: true,
+                controller_viewer_id: Some("viewer".into()),
+                ..SessionStatus::default()
+            })
+            .unwrap();
+        assert!(terminal.footer().0.contains("Click to revoke"));
+        assert!(matches!(
+            terminal.handle_input(b"y").unwrap(),
+            ModalInput::Passthrough
+        ));
+        assert!(matches!(
+            terminal.handle_input(b"\x1b[<0;5;6M").unwrap(),
+            ModalInput::Decision(ModalDecision::Revoke)
+        ));
+        assert!(matches!(
+            terminal.handle_input(b"\x1b[<0;5;2M").unwrap(),
+            ModalInput::Consumed
+        ));
+        terminal
+            .sync_status(SessionStatus {
+                connected: true,
+                ..SessionStatus::default()
+            })
+            .unwrap();
+        assert!(!terminal.footer().0.contains("Click to revoke"));
+        assert_eq!(
+            terminal
+                .previous_screen
+                .as_ref()
+                .unwrap()
+                .mouse_protocol_mode(),
+            vt100::MouseProtocolMode::None
+        );
     }
 
     #[test]

@@ -80,19 +80,6 @@ impl Pty {
         unsafe { libc::waitpid(self.child, &mut status, 0) };
         Ok(())
     }
-
-    pub fn resize(&self, size: TerminalSize) -> Result<()> {
-        let mut winsize = libc::winsize {
-            ws_row: size.rows,
-            ws_col: size.cols,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-        if unsafe { libc::ioctl(self.master, libc::TIOCSWINSZ, &mut winsize) } != 0 {
-            return Err(Error::Io(io::Error::last_os_error()));
-        }
-        Ok(())
-    }
 }
 
 impl Drop for Pty {

@@ -14,7 +14,7 @@ flowchart LR
 | Component | Responsibility |
 | --- | --- |
 | Agent | Shell, local status bar, terminal state, host approval, reconnection |
-| Durable Object | Session lifecycle, connections, control leases, output replay |
+| Durable Object | Session lifecycle, connections, control leases |
 | Web client | Terminal rendering, viewer input, reconnect, Chinese/English interface |
 | Worker | Session API, static assets, bootstrap scripts, download proxy |
 
@@ -34,11 +34,13 @@ after two hours; the maximum lifetime is 24 hours.
 Normal shell exit sends `session.end`, acknowledged by `session.ended`. An unexpected
 host disconnection has a 180-second grace period before sharing ends. Viewers remain
 connected to receive status and a subsequent host connection. Each host connection
-clears previous output replay and control permissions and starts a new output generation.
+clears control permissions and starts a new output generation.
 
 Viewers need local host approval to type. Requests expire after 30 seconds; control
 leases last 60 seconds to 30 minutes. Host disconnection clears pending requests and
-leases. Viewer identity is stored per session in `sessionStorage`; a new connection
+leases. A controller can release its lease from the web toolbar; the host can revoke
+it through the local status bar. Both operations keep the shell and viewer connections
+active. Viewer identity is stored per session in `sessionStorage`; a new connection
 with the same identity replaces the previous one.
 
 The Agent retries connections with 250 ms–5 s exponential backoff, sends pings every
@@ -54,7 +56,8 @@ xterm.js can use its corresponding wrapping and scrollback behavior.
 
 The Agent uses a vendored vt100 parser to render the child shell above a fixed status
 bar in the local alternate screen. The status bar and pre-sharing terminal contents
-are not sent to viewers. Each new approval request emits one terminal bell.
+are not sent to viewers. Each new approval request emits one terminal bell. The status bar has clickable
+approve/deny actions with keyboard equivalents; footer clicks are consumed locally.
 
 Ordinary shells have up to 10,000 lines of local scrollback. Mouse-wheel input scrolls
 history; typing or returning to the bottom resumes the live view. Full-screen apps use
@@ -70,8 +73,7 @@ restores console modes and code pages.
 
 A viewer connection requests a current-screen snapshot, including screen buffers,
 cursor, dimensions, and input modes. Snapshots exclude scrollback. Requests identify a
-specific viewer connection; replies for replaced connections are ignored. The server
-also keeps up to 2 MiB of in-memory output replay.
+specific viewer connection; replies for replaced connections are ignored. The server forwards live output without retaining a replay buffer.
 
 The Agent maintains two screen models: one receives every PTY output byte, while the
 other follows the current connection's outgoing stream for viewer snapshots. Snapshots
@@ -95,11 +97,11 @@ uses a 512 KiB outgoing buffered-amount threshold.
 | `terminal.size`, `terminal.profile` | Host geometry and PTY metadata |
 | `terminal.size.request`, `terminal.profile.request` | Request host metadata |
 | `terminal.snapshot.request`, `terminal.snapshot` | Request and restore a viewer's screen |
-| `control.request`, `control.approve`, `control.reject` | Host authorization |
+| `control.request`, `control.approve`, `control.reject`, `control.release`, `control.revoke` | Host authorization |
 | `session.end`, `session.ended` | End sharing and acknowledge |
 
 The Durable Object persists lifecycle metadata and WebSocket attachments. Terminal
-replay and profile/size caches stay in memory. Browser snapshot rendering shares the
+profile/size caches stay in memory. Browser snapshot rendering shares the
 normal output queue to preserve ordering.
 
 For bootstrap delivery and platform binaries, see [deployment and releases](releasing.md).
