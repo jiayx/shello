@@ -1,8 +1,31 @@
-# Releasing ttys
+# Releasing Shello
 
 The distributable product is the Rust Agent. The release workflow intentionally tests
 and packages only <code>agent/</code>; deploy the web application separately through
 Wrangler.
+
+## Shello naming transition
+
+The CLI and release assets now use `shello-agent`; environment variables use
+`SHELLO_TRACE` and `SHELLO_AGENT_ACTIVE`. Publish a release containing the renamed
+assets before deploying the updated bootstrap. Older releases only contain the old
+asset names and cannot satisfy the new download requests.
+
+The configured GitHub repository remains `jiayx/ttys`, matching the existing Git
+remote. This is an external resource address, not the product name. After renaming
+the GitHub repository, update `BOOTSTRAP_GITHUB_REPOSITORY` and the local Git remote
+together. Until then, publish the new assets to the existing repository.
+
+The default Worker name is now `shello`. This targets a separate deployment from the
+old Worker; it does not rename the deployed service or transfer its active sessions.
+To update the existing deployment in place, retain its deployed Worker name during
+the transition. Coordinate routes and domains when switching to the new deployment.
+The `TTYSession` class, `TTY_SESSION` binding, and migration history retain their
+technical identifiers so an in-place update does not replace the session namespace.
+
+The browser reads the legacy viewer-token key when needed and stores it under the
+new `shello.viewerToken.*` key, preserving identity on the same origin. A new origin
+has separate browser storage and cannot inherit an active viewer's authorization.
 
 ## Versioning
 
@@ -85,14 +108,14 @@ allowed to finish even if a later commit is pushed.
 Each GitHub Release includes:
 
 ~~~text
-ttys-agent-darwin-amd64
-ttys-agent-darwin-arm64
-ttys-agent-linux-amd64
-ttys-agent-linux-arm64
-ttys-agent-linux-amd64-portable
-ttys-agent-linux-arm64-portable
-ttys-agent-windows-amd64.exe
-ttys-agent-windows-arm64.exe
+shello-agent-darwin-amd64
+shello-agent-darwin-arm64
+shello-agent-linux-amd64
+shello-agent-linux-arm64
+shello-agent-linux-amd64-portable
+shello-agent-linux-arm64-portable
+shello-agent-windows-amd64.exe
+shello-agent-windows-arm64.exe
 checksums.txt
 ~~~
 
@@ -106,7 +129,7 @@ After the GitHub Action finishes, confirm that every binary and
 <code>checksums.txt</code> is attached to the release, then test the deployed bootstrap:
 
 ~~~bash
-curl -fsSL https://your-ttys.example/start | sh
+curl -fsSL https://your-shello.example/start | sh
 ~~~
 
 The script must identify the platform, validate the downloaded checksum, and print a

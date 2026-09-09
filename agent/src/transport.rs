@@ -43,7 +43,7 @@ pub(crate) fn websocket_loop(
             }
             Err(error) => {
                 if !logged_failure {
-                    eprintln!("\r\nttys-agent: server connection failed: {error}. Retrying...");
+                    eprintln!("\r\nshello-agent: server connection failed: {error}. Retrying...");
                     logged_failure = true;
                 }
             }
@@ -57,7 +57,7 @@ fn connect_websocket(value: &str) -> Result<WebSocket<MaybeTlsStream<TcpStream>>
     let mut request = value.into_client_request()?;
     request.headers_mut().insert(
         "user-agent",
-        "ttys-agent"
+        "shello-agent"
             .parse::<tungstenite::http::HeaderValue>()
             .map_err(|error| Error::Message(error.to_string()))?,
     );

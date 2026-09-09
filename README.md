@@ -1,12 +1,17 @@
 <p align="center">
-  <img src="apps/web/public/logo.svg" alt="ttys logo" width="96" height="96">
+  <img src="apps/web/public/logo.svg" alt="Shello logo" width="96" height="96">
 </p>
 
-<h1 align="center">ttys</h1>
+<h1 align="center">Shello</h1>
+
+<p align="center">One command. Share your shell.</p>
 
 Share a local terminal from a browser-friendly link, without opening an inbound port.
 The host runs one Rust Agent; Cloudflare Workers and a Durable Object broker the
 browser and host WebSocket connections.
+
+The host CLI is `shello-agent`, the web package is `@shello/web`, and Agent
+environment variables use the `SHELLO_*` prefix.
 
 ## What is in this repository
 
@@ -41,7 +46,7 @@ forwarded.
 For a deployed instance, run the Agent from the browser bootstrap page:
 
 ~~~bash
-curl -fsSL https://your-ttys.example/start | sh
+curl -fsSL https://your-shello.example/start | sh
 ~~~
 
 The bootstrap script selects the matching release binary, verifies it against
@@ -86,7 +91,7 @@ and emoji glyph coverage.
 
 ## Security model
 
-ttys is designed for deliberate, temporary sharing—not as a multi-user access-control
+Shello is designed for deliberate, temporary sharing—not as a multi-user access-control
 system. Anyone who has a live viewer link can observe the terminal. Treat that link as
 a secret, close the session when the task ends, and do not expose credentials or
 production consoles unless that risk is acceptable.
@@ -94,7 +99,7 @@ production consoles unless that risk is acceptable.
 Remote input is disabled by default. Each control request is surfaced in the host's
 real terminal, where <code>Y</code> approves it and <code>N</code>, Return, Ctrl-C, or
 Escape rejects it. Approval pauses remote delivery while the prompt is active, keeping
-host interaction and the decision visible. ttys does not add end-to-end encryption or
+host interaction and the decision visible. Shello does not add end-to-end encryption or
 identity-based authorization on top of the deployment's HTTPS and Cloudflare access
 controls.
 
@@ -182,7 +187,7 @@ For terminal-rendering diagnostics, record raw PTY output with:
 
 ~~~bash
 cd agent
-TTYS_TRACE=/tmp/ttys.trace cargo run -- -server http://localhost:5173
+SHELLO_TRACE=/tmp/shello.trace cargo run -- -server http://localhost:5173
 ~~~
 
 Then open <code>http://localhost:5173/debug/replay</code> and load the trace to replay
@@ -198,7 +203,7 @@ Build the current machine's Agent binary into the web download directory:
 
 This produces:
 
-- <code>apps/web/public/downloads/local/ttys-agent-&lt;os&gt;-&lt;arch&gt;[.exe]</code>
+- <code>apps/web/public/downloads/local/shello-agent-&lt;os&gt;-&lt;arch&gt;[.exe]</code>
 - <code>apps/web/public/downloads/local/checksums.txt</code>
 
 ## CI and releases
@@ -209,14 +214,14 @@ changes. Pull requests perform the Rust quality gate on Ubuntu and native lint/t
 checks on macOS ARM64 and Windows AMD64. A <code>v*</code> tag repeats those checks
 once, then builds the six delivery targets:
 
-- <code>ttys-agent-darwin-amd64</code>
-- <code>ttys-agent-darwin-arm64</code>
-- <code>ttys-agent-linux-amd64</code>
-- <code>ttys-agent-linux-arm64</code>
-- <code>ttys-agent-linux-amd64-portable</code>
-- <code>ttys-agent-linux-arm64-portable</code>
-- <code>ttys-agent-windows-amd64.exe</code>
-- <code>ttys-agent-windows-arm64.exe</code>
+- <code>shello-agent-darwin-amd64</code>
+- <code>shello-agent-darwin-arm64</code>
+- <code>shello-agent-linux-amd64</code>
+- <code>shello-agent-linux-arm64</code>
+- <code>shello-agent-linux-amd64-portable</code>
+- <code>shello-agent-linux-arm64-portable</code>
+- <code>shello-agent-windows-amd64.exe</code>
+- <code>shello-agent-windows-arm64.exe</code>
 
 The standard Linux assets use the system TLS runtime to stay lightweight. The
 portable Linux assets use Rustls and are downloaded only when the standard asset cannot

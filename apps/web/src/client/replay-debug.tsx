@@ -9,7 +9,7 @@ export function ReplayDebug() {
   const replayTimer = useRef<number | null>(null);
   const [size, setSize] = useState(defaultSize);
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
-  const [status, setStatus] = useState("Load a TTYS_TRACE file to replay raw PTY output.");
+  const [status, setStatus] = useState("Load a SHELLO_TRACE file to replay raw PTY output.");
 
   useEffect(() => {
     if (!terminalRef.current) {
@@ -87,7 +87,7 @@ export function ReplayDebug() {
       <section className="mx-auto flex max-w-7xl flex-col gap-4">
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-black/30 p-4">
           <a href="/" className="text-sm text-amber-300 hover:text-amber-200">
-            ttys
+            Shello
           </a>
           <span className="text-sm text-stone-500">Raw PTY replay</span>
           <label className="text-sm text-stone-300">

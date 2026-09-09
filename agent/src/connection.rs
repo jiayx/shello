@@ -107,7 +107,7 @@ fn http_request(method: &str, url: &ParsedUrl, body: &[u8]) -> Result<Vec<u8>> {
     let target = request_target(url);
     let host_header = url.host_header(port);
     let request = format!(
-            "{method} {target} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: ttys-agent\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+            "{method} {target} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: shello-agent\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
             body.len()
         );
     let tcp = connect_tcp(&url.host, port)?;
@@ -430,10 +430,10 @@ mod tests {
         );
         assert_eq!(
                 read_http_response(Cursor::new(
-                    b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4;extension=value\r\nttys\r\n2\r\n!!\r\n0\r\n\r\n"
+                    b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n6;extension=value\r\nshello\r\n2\r\n!!\r\n0\r\n\r\n"
                 ))
                 .unwrap(),
-                b"ttys!!"
+                b"shello!!"
             );
         assert!(read_http_response(Cursor::new(b"HTTP/1.1 503 Unavailable\r\n\r\n")).is_err());
         assert!(decode_chunked_body(b"3\r\nab").is_err());
@@ -458,7 +458,7 @@ mod tests {
             let request = String::from_utf8_lossy(&request[..read]);
             assert!(request.starts_with("POST /api/session?source=test HTTP/1.1\r\n"));
             assert!(request.contains(&format!("Host: 127.0.0.1:{port}\r\n")));
-            assert!(request.contains("User-Agent: ttys-agent\r\n"));
+            assert!(request.contains("User-Agent: shello-agent\r\n"));
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
                 .unwrap();

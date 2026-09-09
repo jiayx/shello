@@ -34,7 +34,7 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
   const surface = document.createElement("div");
   viewport.style.width = "100%";
   viewport.style.height = "100%";
-  viewport.style.overflow = "hidden";
+  viewport.style.overflow = "auto";
   surface.style.width = "100%";
   surface.style.height = "100%";
   container.appendChild(viewport);
@@ -56,6 +56,14 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
 
   terminal.loadAddon(fit);
   terminal.open(surface);
+  // Keep host dimensions intact; scroll when the minimum readable font no longer fits.
+  function syncSurfaceSize() {
+    const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
+    if (!screen) return;
+    surface.style.minWidth = `${screen.offsetWidth + 16}px`;
+    surface.style.minHeight = `${screen.offsetHeight}px`;
+  }
+  const renderSubscription = terminal.onRender(syncSurfaceSize);
   if (initialSize) {
     terminal.resize(initialSize.cols, initialSize.rows);
   }
@@ -146,6 +154,7 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
         window.clearTimeout(resizeTimer);
       }
       writeBatcher.dispose();
+      renderSubscription.dispose();
       terminal.dispose();
       viewport.remove();
     },

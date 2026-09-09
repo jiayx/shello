@@ -22,7 +22,7 @@ use windows_sys::Win32::System::Threading::{
     STARTUPINFOEXW,
 };
 
-const NESTED_AGENT_ENV: &str = "TTYS_AGENT_ACTIVE";
+const NESTED_AGENT_ENV: &str = "SHELLO_AGENT_ACTIVE";
 
 const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x0002_0016;
 const UTF8_CODE_PAGE: u32 = 65001;

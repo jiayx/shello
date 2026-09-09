@@ -72,7 +72,7 @@ prepare() {
   ! grep -q "^## \[$VERSION\]" "$CHANGELOG" ||
     fail "CHANGELOG already contains version $VERSION"
 
-  temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/ttys-release.XXXXXX")
+  temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/shello-release.XXXXXX")
   trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
 
   awk -v version="$VERSION" '
@@ -89,8 +89,8 @@ prepare() {
   mv "$temp_dir/Cargo.toml" "$PACKAGE_FILE"
 
   awk -v version="$VERSION" '
-    /^# ttys-agent / && !updated {
-      print "# ttys-agent " version
+    /^# shello-agent / && !updated {
+      print "# shello-agent " version
       updated = 1
       next
     }
@@ -148,7 +148,7 @@ publish() {
   grep -q "^## \[$VERSION\] - " "$CHANGELOG" ||
     fail "CHANGELOG does not contain a dated $VERSION section"
 
-  temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/ttys-release.XXXXXX")
+  temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/shello-release.XXXXXX")
   trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
   "$ROOT_DIR/scripts/release-notes.sh" "$VERSION" > "$temp_dir/release-notes.md" ||
     fail "could not extract CHANGELOG section for $VERSION"

@@ -18,14 +18,14 @@ type ReleaseManifest = {
 };
 
 const releaseTargets = {
-  "darwin-amd64": "ttys-agent-darwin-amd64",
-  "darwin-arm64": "ttys-agent-darwin-arm64",
-  "linux-amd64": "ttys-agent-linux-amd64",
-  "linux-arm64": "ttys-agent-linux-arm64",
-  "linux-amd64-portable": "ttys-agent-linux-amd64-portable",
-  "linux-arm64-portable": "ttys-agent-linux-arm64-portable",
-  "windows-amd64": "ttys-agent-windows-amd64.exe",
-  "windows-arm64": "ttys-agent-windows-arm64.exe",
+  "darwin-amd64": "shello-agent-darwin-amd64",
+  "darwin-arm64": "shello-agent-darwin-arm64",
+  "linux-amd64": "shello-agent-linux-amd64",
+  "linux-arm64": "shello-agent-linux-arm64",
+  "linux-amd64-portable": "shello-agent-linux-amd64-portable",
+  "linux-arm64-portable": "shello-agent-linux-arm64-portable",
+  "windows-amd64": "shello-agent-windows-amd64.exe",
+  "windows-arm64": "shello-agent-windows-arm64.exe",
 } as const;
 
 const sessionIdAlphabet = "23456789abcdefghjkmnpqrstuvwxyz";
@@ -232,7 +232,7 @@ async function proxyLatestReleaseAsset(
   const upstreamURL = latestReleaseAssetURL(env, assetName);
   const upstream = await fetch(upstreamURL, {
     headers: {
-      "user-agent": "ttys-bootstrap-proxy",
+      "user-agent": "shello-bootstrap-proxy",
     },
     redirect: "follow",
   });

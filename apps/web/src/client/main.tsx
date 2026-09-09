@@ -24,10 +24,10 @@ function NotFound() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-stone-950 px-6 text-stone-100">
       <section className="w-full max-w-md rounded-3xl border border-white/10 bg-black/30 p-6">
-        <p className="text-xs uppercase tracking-[0.32em] text-amber-400">ttys</p>
+        <p className="text-xs uppercase tracking-[0.32em] text-amber-400">Shello</p>
         <h1 className="mt-4 text-2xl font-medium text-stone-100">Page not found</h1>
         <p className="mt-3 text-sm leading-6 text-stone-400">
-          This link does not match an active ttys route.
+          This link does not match an active Shello route.
         </p>
         <a
           href="/"

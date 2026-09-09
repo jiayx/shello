@@ -4,7 +4,7 @@ use std::ffi::CString;
 use std::io::{self, Read, Write};
 use std::os::fd::RawFd;
 
-const NESTED_AGENT_ENV: &str = "TTYS_AGENT_ACTIVE";
+const NESTED_AGENT_ENV: &str = "SHELLO_AGENT_ACTIVE";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TerminalSize {

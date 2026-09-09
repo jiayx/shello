@@ -72,7 +72,7 @@ use terminal::{
 use transport::websocket_loop;
 
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const NESTED_AGENT_ENV: &str = "TTYS_AGENT_ACTIVE";
+const NESTED_AGENT_ENV: &str = "SHELLO_AGENT_ACTIVE";
 const OUTPUT_QUEUE_CAPACITY: usize = 256;
 const CONTROL_QUEUE_CAPACITY: usize = 4;
 const PTY_INPUT_QUEUE_CAPACITY: usize = 64;
@@ -82,23 +82,23 @@ fn run() -> Result<()> {
     let config = match parse_args(env::args().skip(1))? {
         Command::Run(config) => config,
         Command::Version => {
-            println!("ttys-agent {AGENT_VERSION}");
+            println!("shello-agent {AGENT_VERSION}");
             return Ok(());
         }
     };
 
     if env::var_os(NESTED_AGENT_ENV).is_some() {
-        eprintln!("ttys-agent is already active in this terminal session.");
+        eprintln!("shello-agent is already active in this terminal session.");
         eprintln!("Open a new local terminal, or exit the current shared shell before starting another agent.");
         return Ok(());
     }
 
-    eprintln!("ttys-agent v{AGENT_VERSION}");
+    eprintln!("shello-agent v{AGENT_VERSION}");
     let connect = resolve_connection(&config)?;
     let shell = config.shell.unwrap_or_else(default_shell);
     let mut pty = Pty::spawn(&shell)?;
 
-    eprintln!("ttys-agent: shared shell is active.");
+    eprintln!("shello-agent: shared shell is active.");
     eprintln!("Share URL: {}", connect.viewer_url);
     if cfg!(windows) {
         eprintln!("Exit the shared shell with 'exit'.\n");
@@ -162,13 +162,13 @@ fn run() -> Result<()> {
     let _ = done_rx.recv();
     drop(raw_terminal);
     let _ = pty.wait();
-    eprintln!("\nttys-agent: shared shell ended. Remote access is closed.");
+    eprintln!("\nshello-agent: shared shell ended. Remote access is closed.");
     Ok(())
 }
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("ttys-agent: {error}");
+        eprintln!("shello-agent: {error}");
         std::process::exit(1);
     }
 }

@@ -4,6 +4,22 @@ All notable user-visible changes are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-09
+
+### Changed
+
+- Renamed the product to Shello, the CLI and release assets to `shello-agent`,
+  and environment variables to `SHELLO_*`.
+- Redesigned the logo and workspace around a full-width terminal, compact toolbar,
+  startup guidance, and a right-side session-details drawer.
+
+### Fixed
+
+- Creating another session now preserves the current connection in its original tab.
+- Narrow terminal viewports can scroll to content beyond the minimum font size.
+- Connection status takes precedence over temporary notices, which now expire.
+- Clipboard fallback works inside the session-details dialog and restores focus.
+
 ### Added
 
 - Added a two-stage release script that prepares an editable CHANGELOG draft,
@@ -35,7 +51,7 @@ All notable user-visible changes are documented here.
 
 ### Added
 
-- Added <code>ttys-agent --version</code> / <code>-V</code> and a version banner at
+- Added <code>shello-agent --version</code> / <code>-V</code> and a version banner at
   normal Agent startup, using the version embedded in the release binary.
 
 ## [0.2.0] - 2026-07-26

@@ -1,7 +1,7 @@
-# ttys-agent
+# shello-agent
 
-The single supported host agent for ttys, written in Rust. It runs the local shell in a
-PTY and connects that PTY to a ttys session over an outbound WebSocket.
+The single supported host agent for shello, written in Rust. It runs the local shell in a
+PTY and connects that PTY to a shello session over an outbound WebSocket.
 
 It creates or attaches to a terminal-sharing session, launches the local shell in a
 PTY, forwards terminal I/O over WebSocket, reconnects after transient failures, and
@@ -11,7 +11,7 @@ can choose matching xterm.js behavior.
 
 ## Behavior
 
-- Creates a session through an HTTP(S) ttys server, or attaches to an existing
+- Creates a session through an HTTP(S) shello server, or attaches to an existing
   <code>xxx-xxx</code> session.
 - Launches a shell inside a local PTY and mirrors output to the host terminal and the
   remote session.
@@ -44,14 +44,14 @@ cargo run -- -server http://localhost:5173 -session abc-def
 Choose a shell explicitly:
 
 ~~~bash
-cargo run -- -server https://ttys.example -shell /bin/bash
+cargo run -- -server https://shello.example -shell /bin/bash
 ~~~
 
 Show the embedded Agent version:
 
 ~~~bash
 cargo run -- --version
-# ttys-agent 0.2.2
+# shello-agent 0.3.0
 ~~~
 
 The Agent also prints its version as the first line of a normal startup. Release
@@ -94,13 +94,13 @@ messages to 1 MiB, and modal buffering to 1 MiB.
 
 ## Diagnostics
 
-Set <code>TTYS_TRACE</code> to record raw PTY output for browser-rendering diagnostics:
+Set <code>SHELLO_TRACE</code> to record raw PTY output for browser-rendering diagnostics:
 
 ~~~bash
-TTYS_TRACE=/tmp/ttys.trace cargo run -- -server http://localhost:5173
+SHELLO_TRACE=/tmp/shello.trace cargo run -- -server http://localhost:5173
 ~~~
 
-Load that file in <code>/debug/replay</code> on the same ttys web deployment to
+Load that file in <code>/debug/replay</code> on the same shello web deployment to
 reproduce output in xterm.js without a WebSocket session.
 
 ## Source layout and tests

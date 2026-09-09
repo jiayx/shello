@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-const TRACE_ENV: &str = "TTYS_TRACE";
+const TRACE_ENV: &str = "SHELLO_TRACE";
 const MAX_MODAL_BUFFER: usize = 1024 * 1024;
 
 pub(crate) fn enqueue<T>(sender: &SyncSender<T>, value: T) {
@@ -50,7 +50,7 @@ pub(crate) fn trace_writer() -> Option<Box<dyn Write + Send>> {
         Ok(file) => Some(Box::new(file)),
         Err(error) => {
             eprintln!(
-                "ttys-agent: failed to open TTYS_TRACE={}: {error}",
+                "shello-agent: failed to open SHELLO_TRACE={}: {error}",
                 path.to_string_lossy()
             );
             None
@@ -269,7 +269,7 @@ impl ApprovalModal {
         let message = truncate(
                 width,
                 &format!(
-                    " ttys control request: viewer {viewer}, {lease}m lease. Press Y to approve or N to deny. "
+                    " shello control request: viewer {viewer}, {lease}m lease. Press Y to approve or N to deny. "
                 ),
             );
 
@@ -295,7 +295,7 @@ impl ApprovalModal {
             write_local_output(&buffered)?;
         }
         if self.dropped_buffered_output {
-            write_local_output(b"\r\n[ttys-agent: local output was truncated while control approval was pending]\r\n")?;
+            write_local_output(b"\r\n[shello-agent: local output was truncated while control approval was pending]\r\n")?;
             self.dropped_buffered_output = false;
         }
         Ok(buffered)

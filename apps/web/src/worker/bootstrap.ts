@@ -21,7 +21,7 @@ SESSION_ID="${sessionId ?? ""}"
 if [ -z "$SESSION_ID" ]; then
   SESSION_ID="\${1:-}"
 fi
-TMP_DIR="\${TMPDIR:-/tmp}/ttys"
+TMP_DIR="\${TMPDIR:-/tmp}/shello"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
@@ -43,9 +43,9 @@ case "$OS" in
 esac
 
 mkdir -p "$TMP_DIR"
-ASSET_NAME="ttys-agent-$OS-$ARCH"
+ASSET_NAME="shello-agent-$OS-$ARCH"
 AGENT_PATH="$TMP_DIR/$ASSET_NAME"
-CHECKSUMS_PATH="$TMP_DIR/ttys-agent-checksums.txt"
+CHECKSUMS_PATH="$TMP_DIR/shello-agent-checksums.txt"
 
 if command -v curl >/dev/null 2>&1; then
   download() {
@@ -56,7 +56,7 @@ elif command -v wget >/dev/null 2>&1; then
     wget -qO "$2" "$1"
   }
 else
-  echo "curl or wget is required to download ttys-agent" >&2
+  echo "curl or wget is required to download shello-agent" >&2
   exit 1
 fi
 
@@ -78,7 +78,7 @@ download_and_verify() {
   elif command -v sha256sum >/dev/null 2>&1; then
     actual_checksum="$(sha256sum "$agent_path" | awk '{print $1}')"
   else
-    echo "shasum or sha256sum is required to verify ttys-agent" >&2
+    echo "shasum or sha256sum is required to verify shello-agent" >&2
     exit 1
   fi
 
@@ -95,10 +95,10 @@ download_and_verify "$ASSET_NAME" "$AGENT_PATH"
 if [ "$OS" = "linux" ] && ! "$AGENT_PATH" --version >/dev/null 2>&1; then
   PORTABLE_ASSET_NAME="$ASSET_NAME-portable"
   PORTABLE_AGENT_PATH="$TMP_DIR/$PORTABLE_ASSET_NAME"
-  echo "ttys-agent: system TLS is unavailable; using the portable TLS fallback." >&2
+  echo "shello-agent: system TLS is unavailable; using the portable TLS fallback." >&2
   download_and_verify "$PORTABLE_ASSET_NAME" "$PORTABLE_AGENT_PATH"
   if ! "$PORTABLE_AGENT_PATH" --version >/dev/null 2>&1; then
-    echo "ttys-agent portable fallback could not start" >&2
+    echo "shello-agent portable fallback could not start" >&2
     exit 1
   fi
   ASSET_NAME="$PORTABLE_ASSET_NAME"
@@ -107,7 +107,7 @@ fi
 
 TTY_DEVICE="/dev/tty"
 if [ ! -r "$TTY_DEVICE" ] || [ ! -w "$TTY_DEVICE" ]; then
-  echo "ttys-agent requires an interactive terminal (/dev/tty not available)" >&2
+  echo "shello-agent requires an interactive terminal (/dev/tty not available)" >&2
   exit 1
 fi
 
@@ -143,12 +143,12 @@ switch ($env:PROCESSOR_ARCHITECTURE.ToLower()) {
   }
 }
 
-$Tmp = Join-Path ([System.IO.Path]::GetTempPath()) "ttys"
+$Tmp = Join-Path ([System.IO.Path]::GetTempPath()) "shello"
 New-Item -ItemType Directory -Force -Path $Tmp | Out-Null
-$AssetName = "ttys-agent-$Os-$Arch.exe"
+$AssetName = "shello-agent-$Os-$Arch.exe"
 $AgentPath = Join-Path $Tmp $AssetName
 $DownloadUrl = "$BinaryBaseUrl/$AssetName"
-$ChecksumsPath = Join-Path $Tmp "ttys-agent-checksums.txt"
+$ChecksumsPath = Join-Path $Tmp "shello-agent-checksums.txt"
 
 $HttpHandler = [System.Net.Http.HttpClientHandler]::new()
 $HttpHandler.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate

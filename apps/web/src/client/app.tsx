@@ -63,6 +63,7 @@ class SessionEndedError extends Error {}
 
 export function App() {
   const terminalRef = useRef<HTMLDivElement | null>(null);
+  const detailsDialogRef = useRef<HTMLDialogElement | null>(null);
   const terminal = useRef<TerminalController | null>(null);
   const requestControlButtonRef = useRef<HTMLButtonElement | null>(null);
   const socket = useRef<WebSocket | null>(null);
@@ -73,6 +74,7 @@ export function App() {
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [requestingControl, setRequestingControl] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformTab>(() => detectPlatformTab());
   const [statusNote, setStatusNote] = useState<string | null>(null);
@@ -110,6 +112,26 @@ export function App() {
     }
     return shellBootstrapCommand;
   }, [selectedPlatform, shellBootstrapCommand, windowsBootstrapCommand]);
+
+  useEffect(() => {
+    const dialog = detailsDialogRef.current;
+    if (!dialog) return;
+    if (detailsOpen && sessionId) {
+      if (!dialog.open) dialog.showModal();
+    } else if (dialog.open) {
+      dialog.close();
+    }
+  }, [detailsOpen, sessionId]);
+
+  useEffect(() => {
+    if (!statusNote) return;
+    const timer = window.setTimeout(() => setStatusNote(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [statusNote]);
+
+  useEffect(() => {
+    setStatusNote(null);
+  }, [sessionStatus?.hostState]);
 
   useEffect(() => {
     canWriteRef.current = Boolean(sessionStatus?.canWrite);
@@ -318,6 +340,7 @@ export function App() {
         }
         clearReconnectTimer();
         setTransportState("connected");
+        setStatusNote(null);
         setConnecting(false);
         reconnectAttempts.current = 0;
       });
@@ -535,6 +558,15 @@ export function App() {
   }, [sessionId]);
 
   async function createSession(options: { openInNewTab?: boolean } = {}) {
+    if (creating) return;
+    const openInNewTab = Boolean(sessionId) || options.openInNewTab;
+    // Reserve the tab during the click so popup blockers do not reject it after fetch.
+    const newTab = openInNewTab ? window.open("about:blank", "_blank") : null;
+    if (openInNewTab && !newTab) {
+      setStatusNote("Allow pop-ups to open a new session. Your current session is still connected.");
+      return;
+    }
+    if (newTab) newTab.opener = null;
     setCreating(true);
     try {
       const response = await fetch("/api/session", { method: "POST" });
@@ -545,8 +577,12 @@ export function App() {
       const created = (await response.json()) as SessionInfo;
       const createdInfo = normalizeSessionInfo(created);
 
-      if (options.openInNewTab) {
-        window.open(createdInfo.viewerUrl, "_blank", "noopener,noreferrer");
+      if (newTab) {
+        if (newTab.closed) {
+          setStatusNote("The new tab was closed. Your current session is unchanged.");
+          return;
+        }
+        newTab.location.replace(createdInfo.viewerUrl);
         return;
       }
 
@@ -569,6 +605,9 @@ export function App() {
       setConnecting(false);
       terminal.current?.reset();
       terminal.current?.setHostTerminalProfile(null);
+    } catch {
+      newTab?.close();
+      setStatusNote("Could not create a new session. Please try again.");
     } finally {
       suppressReconnectRef.current = false;
       setCreating(false);
@@ -614,22 +653,28 @@ export function App() {
       return false;
     }
 
+    const focusedElement = document.activeElement;
+    const textarea = document.createElement("textarea");
     try {
-      const textarea = document.createElement("textarea");
       textarea.value = value;
       textarea.setAttribute("readonly", "");
       textarea.style.position = "fixed";
       textarea.style.opacity = "0";
       textarea.style.pointerEvents = "none";
-      document.body.appendChild(textarea);
-      textarea.focus();
+      const dialog = detailsDialogRef.current;
+      const copyContainer = dialog?.open ? dialog : document.body;
+      copyContainer.appendChild(textarea);
+      textarea.focus({ preventScroll: true });
       textarea.select();
       textarea.setSelectionRange(0, textarea.value.length);
-      const copied = document.execCommand("copy");
-      document.body.removeChild(textarea);
-      return copied;
+      return document.execCommand("copy");
     } catch {
       return false;
+    } finally {
+      textarea.remove();
+      if (focusedElement instanceof HTMLElement && focusedElement.isConnected) {
+        focusedElement.focus({ preventScroll: true });
+      }
     }
   }
 
@@ -715,7 +760,15 @@ export function App() {
 
   let accessDescription =
     "Viewers are read-only by default. Request control to type into the host shell.";
-  if (statusNote) {
+  if (transportState === "closed" || sessionStatus?.hostState === "offline") {
+    accessDescription = "Session ended. Create a new session to continue.";
+  } else if (transportState === "error" || transportState === "reconnecting") {
+    accessDescription = "Connection lost. Reconnecting...";
+  } else if (transportState === "connecting") {
+    accessDescription = "Connecting to the session...";
+  } else if (sessionStatus?.hostState === "reconnecting") {
+    accessDescription = "Host disconnected. Waiting for the host to reconnect.";
+  } else if (statusNote) {
     accessDescription = statusNote;
   } else if (sessionStatus?.canWrite) {
     accessDescription = leaseLabel
@@ -725,182 +778,97 @@ export function App() {
     accessDescription = "Control request sent. Waiting for host approval.";
   } else if (sessionStatus?.controllerViewerId) {
     accessDescription = "Another viewer currently controls the host shell.";
-  } else if (sessionStatus?.hostState === "reconnecting") {
-    accessDescription = "Host disconnected. Control will resume if the host reconnects in time.";
   } else if (sessionStatus?.hostState === "waiting") {
     accessDescription = "Waiting for the host to connect.";
-  } else if (sessionStatus?.hostState === "offline") {
-    accessDescription = "Session ended. Refresh or create a new session.";
   }
 
-  return (
-    <main className="min-h-screen bg-stone-950 text-stone-100">
-      <section className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-8">
-        <header className="mb-6 flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <img
-              src="/logo.svg"
-              alt=""
-              className="h-12 w-12 shadow-[0_0_32px_rgba(251,191,36,0.18)]"
-            />
-            <div>
-              <p className="text-xs uppercase tracking-[0.32em] text-amber-400">
-                ttys
-              </p>
-              <h1 className="mt-2 text-xl font-medium tracking-tight text-stone-200">
-                Live terminal sharing
-              </h1>
-            </div>
-          </div>
-          <div className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300">
-            {connectionLabel}
-          </div>
-        </header>
+  const showSetup = !sessionId || sessionStatus?.hostState === "waiting";
 
-        <div className="grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <aside className="min-w-0 rounded-3xl border border-white/10 bg-black/30 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-medium uppercase tracking-[0.24em] text-stone-400">
-                Status
-              </h2>
-              <button
-                type="button"
-                onClick={handleCreateSessionClick}
-                onAuxClick={(event) => {
-                  if (event.button === 1) {
-                    event.preventDefault();
-                    void createSession({ openInNewTab: true });
-                  }
-                }}
-                disabled={creating}
-                className="rounded-full border border-amber-400/60 bg-amber-400/10 px-3.5 py-1.5 text-xs font-semibold text-amber-200 shadow-[0_0_20px_rgba(251,191,36,0.12)] transition hover:border-amber-300 hover:bg-amber-400/20 hover:text-amber-100 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/10 disabled:text-stone-500 disabled:shadow-none"
-              >
-                {createSessionLabel}
-              </button>
-            </div>
-            <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-2xl border border-white/8 bg-black/15 p-3">
-                <dt className="text-xs uppercase tracking-[0.18em] text-stone-500">Host</dt>
-                <dd className="mt-1 capitalize text-stone-200">
-                  {sessionStatus?.hostState ?? "waiting"}
-                </dd>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-black/15 p-3">
-                <dt className="text-xs uppercase tracking-[0.18em] text-stone-500">Viewers</dt>
-                <dd className="mt-1 text-stone-200">
-                  {sessionStatus?.viewerCount ?? 0}
-                </dd>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-black/15 p-3">
-                <dt className="text-xs uppercase tracking-[0.18em] text-stone-500">Mode</dt>
-                <dd className="mt-1 text-stone-200">
-                  {connecting ? "Connecting" : modeLabel}
-                </dd>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-black/15 p-3">
-                <dt className="text-xs uppercase tracking-[0.18em] text-stone-500">Lease</dt>
-                <dd className="mt-1 text-stone-200">
-                  {leaseLabel ?? "Not granted"}
-                </dd>
-              </div>
-              <div className="col-span-2 rounded-2xl border border-white/8 bg-black/15 p-3">
-                <dt className="text-xs uppercase tracking-[0.18em] text-stone-500">Expires</dt>
-                <dd className="mt-1 text-stone-200">
-                  {sessionExpiryLabel ?? "Unknown"}
-                </dd>
-              </div>
-            </dl>
-            <div className="mt-4 space-y-3">
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <p className="text-xs uppercase tracking-[0.22em] text-stone-500">
-                  Access
-                </p>
-                <p className="mt-2 text-sm text-stone-200">
-                  {accessDescription}
-                </p>
-                <button
-                  ref={requestControlButtonRef}
-                  type="button"
-                  onClick={requestControl}
-                  disabled={!canRequestControl || requestingControl}
-                  className="mt-3 w-full rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm font-medium text-sky-200 transition hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {requestControlLabel}
-                </button>
-              </div>
-              <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs uppercase tracking-[0.22em] text-stone-500">
-                    Start host
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void handleCopy(
-                        platformCommand,
-                        setPlatformCopyLabel,
-                        platformCopyTimerRef,
-                      )
-                    }
-                    disabled={!platformCommand}
-                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-stone-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {platformCopyLabel}
-                  </button>
-                </div>
-                <div className="mt-3 grid grid-cols-3 rounded-2xl border border-white/10 bg-black/30 p-1">
-                  <PlatformButton
-                    active={selectedPlatform === "macos"}
-                    label="macOS"
-                    onClick={() => setSelectedPlatform("macos")}
-                  />
-                  <PlatformButton
-                    active={selectedPlatform === "linux"}
-                    label="Linux"
-                    onClick={() => setSelectedPlatform("linux")}
-                  />
-                  <PlatformButton
-                    active={selectedPlatform === "windows"}
-                    label="Windows"
-                    onClick={() => setSelectedPlatform("windows")}
-                  />
-                </div>
-                <p className="mt-3 min-w-0 max-w-full overflow-x-auto whitespace-nowrap rounded-xl border border-white/8 bg-black/20 px-3 py-2 font-mono text-sm text-stone-200">
-                  {platformCommand ||
-                    "Create a session to get the bootstrap command for this platform."}
-                </p>
-              </div>
-              <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs uppercase tracking-[0.22em] text-stone-500">
-                    Share URL
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)
-                    }
-                    disabled={!shareUrl}
-                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-stone-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {shareCopyLabel}
-                  </button>
-                </div>
-                <p className="mt-2 min-w-0 max-w-full overflow-x-auto whitespace-nowrap rounded-xl border border-white/8 bg-black/20 px-3 py-2 text-sm text-stone-200">
-                  {shareUrl || "Create a session to get a shareable URL."}
-                </p>
-              </div>
-            </div>
-          </aside>
-
-          <section className="min-w-0 rounded-3xl border border-white/10 bg-black/50 p-3 shadow-2xl shadow-black/40">
-            <div
-              ref={terminalRef}
-              className="h-[calc(100vh-9rem)] min-h-96 overflow-hidden rounded-2xl border border-white/10 bg-[#111111]"
-            />
-          </section>
+  const setupFields = (
+    <div className="session-fields">
+      <div className="min-w-0">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-medium text-stone-200">1. Run on your computer</h2>
+          <div className="flex rounded-lg bg-white/5 p-0.5">
+            <PlatformButton active={selectedPlatform === "macos"} label="macOS" onClick={() => setSelectedPlatform("macos")} />
+            <PlatformButton active={selectedPlatform === "linux"} label="Linux" onClick={() => setSelectedPlatform("linux")} />
+            <PlatformButton active={selectedPlatform === "windows"} label="Windows" onClick={() => setSelectedPlatform("windows")} />
+          </div>
         </div>
+        <div className="copy-field">
+          <code>{platformCommand || "Create a session to get your command."}</code>
+          <button className="workspace-button" disabled={!platformCommand} onClick={() => void handleCopy(platformCommand, setPlatformCopyLabel, platformCopyTimerRef)}>{platformCopyLabel}</button>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <h2 className="mb-2 text-sm font-medium text-stone-200">2. Send this link</h2>
+        <div className="copy-field">
+          <code>{shareUrl || "Your sharing link will appear here."}</code>
+          <button className="workspace-button" disabled={!shareUrl} onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <main className="terminal-workspace">
+      <header className="workspace-toolbar">
+        <div className="flex shrink-0 items-center gap-2">
+          <img src="/logo.svg" alt="" className="h-7 w-7" />
+          <h1 className="text-base font-semibold tracking-tight text-amber-400">Shello</h1>
+        </div>
+        <span className="text-xs text-stone-400" role="status">{connectionLabel}</span>
+        <span className="hidden text-xs text-stone-500 sm:inline">{sessionId || "One command. Share your shell."}</span>
+        <div className="workspace-actions">
+          <button className="workspace-button" title={sessionId ? "Create a session in a new tab" : "Create session"} onClick={handleCreateSessionClick} onAuxClick={(event) => {
+            if (event.button === 1) { event.preventDefault(); void createSession({ openInNewTab: true }); }
+          }} disabled={creating}>{createSessionLabel}</button>
+          {sessionId && <>
+            <button className="workspace-button" onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel === "Copy" ? "Copy link" : shareCopyLabel}</button>
+            <button ref={requestControlButtonRef} className="workspace-button control-button" onClick={requestControl} disabled={!canRequestControl || requestingControl}>{requestControlLabel}</button>
+            <button className="workspace-button" aria-expanded={detailsOpen} aria-controls="session-details" aria-haspopup="dialog" onClick={() => setDetailsOpen(!detailsOpen)}>{detailsOpen ? "Hide details" : "Session details"}</button>
+          </>}
+        </div>
+      </header>
+
+      <dialog ref={detailsDialogRef} id="session-details" className="workspace-details" aria-labelledby="session-details-title"
+        onCancel={() => setDetailsOpen(false)} onClose={() => setDetailsOpen(false)}
+        onClick={(event) => {
+          if (event.target !== event.currentTarget) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) setDetailsOpen(false);
+        }}>
+        <div className="drawer-heading">
+          <div><h2 id="session-details-title" className="text-lg font-semibold">Session details</h2><p className="mt-1 font-mono text-xs text-stone-500">{sessionId}</p></div>
+          <button type="button" className="workspace-button" onClick={() => setDetailsOpen(false)} autoFocus aria-label="Close session details">Close ×</button>
+        </div>
+        {setupFields}
+        <dl className="drawer-metadata">
+          <div><dt className="inline text-stone-500">Host </dt><dd className="inline">{sessionStatus?.hostState ?? "waiting"}</dd></div>
+          <div><dt className="inline text-stone-500">Viewers </dt><dd className="inline">{sessionStatus?.viewerCount ?? 0}</dd></div>
+          <div><dt className="inline text-stone-500">Control expires </dt><dd className="inline">{leaseLabel ?? "Not granted"}</dd></div>
+          <div><dt className="inline text-stone-500">Session expires </dt><dd className="inline">{sessionExpiryLabel ?? "Unknown"}</dd></div>
+        </dl>
+      </dialog>
+
+      <section className="workspace-terminal" aria-label="Shared terminal">
+        <div ref={terminalRef} className="absolute inset-0 overflow-hidden" />
+        {showSetup && <div className="workspace-setup">
+          <div className="setup-content">
+            <p className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-amber-400">Your shell, shared.</p>
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{sessionId ? "Run once. You're connected." : "One command. Share your shell."}</h2>
+            <p className="mt-3 text-sm leading-6 text-stone-400">{sessionId ? "Run the command in your local terminal, then send the link to your collaborator." : "Share your local command line through a browser link. No manual installation."}</p>
+            {sessionId ? <div className="mt-7">{setupFields}</div> : <button className="workspace-button start-button" disabled={creating} onClick={handleCreateSessionClick}>{creating ? "Creating..." : "Start sharing"}<span aria-hidden="true"> →</span></button>}
+            <p className="mt-5 text-xs leading-5 text-stone-500">Viewers join in their browser. You approve who can type.</p>
+          </div>
+        </div>}
       </section>
+
+      <footer className="workspace-status">
+        <span className="shrink-0 text-stone-300">{connecting ? "Connecting" : modeLabel}</span>
+        <p className="min-w-0 flex-1" role="status">{accessDescription}</p>
+        <span className="hidden shrink-0 sm:inline">{sessionStatus?.viewerCount ?? 0} viewers</span>
+      </footer>
     </main>
   );
 }
@@ -981,7 +949,7 @@ function PlatformButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl px-3 py-2 text-sm transition ${
+      className={`rounded-md px-2 py-1.5 text-xs transition ${
         active
           ? "bg-white text-stone-950 shadow-sm"
           : "text-stone-400 hover:text-stone-200"
@@ -1072,14 +1040,20 @@ function normalizeWebSocketURL(value: string, protocol: string) {
 }
 
 function viewerTokenStorageKey(sessionId: string) {
-  return `ttys.viewerToken.${sessionId}`;
+  return `shello.viewerToken.${sessionId}`;
 }
 
 function readViewerToken(sessionId: string) {
   if (typeof window === "undefined") {
     return null;
   }
-  return window.sessionStorage.getItem(viewerTokenStorageKey(sessionId));
+  const key = viewerTokenStorageKey(sessionId);
+  const token = window.sessionStorage.getItem(key);
+  if (token) return token;
+  // Preserve viewer identity and control when upgrading an existing browser session.
+  const legacyToken = window.sessionStorage.getItem(`ttys.viewerToken.${sessionId}`);
+  if (legacyToken) window.sessionStorage.setItem(key, legacyToken);
+  return legacyToken;
 }
 
 function storeViewerToken(sessionId: string, token: string | null) {

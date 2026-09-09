@@ -114,49 +114,49 @@ jobs:
             target: x86_64-apple-darwin
             tls: native-tls
             ext: ""
-            asset: ttys-agent-darwin-amd64
+            asset: shello-agent-darwin-amd64
           - id: darwin-arm64
             runner: macos-15
             target: aarch64-apple-darwin
             tls: native-tls
             ext: ""
-            asset: ttys-agent-darwin-arm64
+            asset: shello-agent-darwin-arm64
           - id: linux-amd64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             tls: native-tls
             ext: ""
-            asset: ttys-agent-linux-amd64
+            asset: shello-agent-linux-amd64
           - id: linux-arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             tls: native-tls
             ext: ""
-            asset: ttys-agent-linux-arm64
+            asset: shello-agent-linux-arm64
           - id: linux-amd64-portable
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             tls: rustls-tls
             ext: ""
-            asset: ttys-agent-linux-amd64-portable
+            asset: shello-agent-linux-amd64-portable
           - id: linux-arm64-portable
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             tls: rustls-tls
             ext: ""
-            asset: ttys-agent-linux-arm64-portable
+            asset: shello-agent-linux-arm64-portable
           - id: windows-amd64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             tls: native-tls
             ext: ".exe"
-            asset: ttys-agent-windows-amd64.exe
+            asset: shello-agent-windows-amd64.exe
           - id: windows-arm64
             runner: windows-2025
             target: aarch64-pc-windows-msvc
             tls: native-tls
             ext: ".exe"
-            asset: ttys-agent-windows-arm64.exe
+            asset: shello-agent-windows-arm64.exe
 
     steps:
       - uses: actions/checkout@v6
@@ -176,7 +176,7 @@ jobs:
           mkdir -p dist
           cd agent
           cargo build --locked --release --target "${{ matrix.target }}" --no-default-features --features "${{ matrix.tls }}"
-          cp "target/${{ matrix.target }}/release/ttys-agent${{ matrix.ext }}" "../dist/${{ matrix.asset }}"
+          cp "target/${{ matrix.target }}/release/shello-agent${{ matrix.ext }}" "../dist/${{ matrix.asset }}"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -209,7 +209,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum ttys-agent-* > checksums.txt
+          sha256sum shello-agent-* > checksums.txt
 
       - uses: actions/upload-artifact@v7
         with:

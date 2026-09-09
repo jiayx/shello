@@ -1,6 +1,6 @@
 # Architecture
 
-ttys shares one local PTY through a Cloudflare Durable Object. The Agent is the only
+Shello shares one local PTY through a Cloudflare Durable Object. The Agent is the only
 component that can create a shell; the browser is a renderer and, after an explicit
 grant, an input source.
 

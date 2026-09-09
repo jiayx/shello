@@ -1,5 +1,5 @@
 {
-  "name": "@ttys/web",
+  "name": "@shello/web",
   "private": true,
   "type": "module",
   "scripts": {
