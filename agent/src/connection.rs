@@ -67,14 +67,23 @@ pub(crate) fn resolve_connection(config: &Config) -> Result<ConnectInfo> {
 
 pub(crate) fn reconnect_command(viewer_url: &str) -> Result<String> {
     let base = ParsedUrl::parse(viewer_url)?;
-    let path = if cfg!(windows) { "/start.ps1" } else { "/start" };
+    let path = if cfg!(windows) {
+        "/start.ps1"
+    } else {
+        "/start"
+    };
     let session = viewer_url.rsplit('/').next().unwrap_or_default();
     crate::cli::validate_session_id(session)?;
-    let url = base.with_path(&format!("{path}?session={session}")).render();
+    let url = base
+        .with_path(&format!("{path}?session={session}"))
+        .render();
     if cfg!(windows) {
         Ok(format!("irm '{}' | iex", url.replace('\'', "''")))
     } else {
-        Ok(format!("curl -fsSL '{}' | sh", url.replace('\'', "'\"'\"'")))
+        Ok(format!(
+            "curl -fsSL '{}' | sh",
+            url.replace('\'', "'\"'\"'")
+        ))
     }
 }
 
@@ -357,7 +366,11 @@ mod tests {
     #[test]
     fn reconnect_command_keeps_the_pairing_code() {
         let command = super::reconnect_command("https://example.test:8443/s/abc-def").unwrap();
-        let path = if cfg!(windows) { "/start.ps1?session=abc-def" } else { "/start?session=abc-def" };
+        let path = if cfg!(windows) {
+            "/start.ps1?session=abc-def"
+        } else {
+            "/start?session=abc-def"
+        };
         assert!(command.contains(&format!("https://example.test:8443{path}")));
         assert!(super::reconnect_command("https://example.test/s/invalid").is_err());
     }

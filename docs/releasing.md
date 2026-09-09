@@ -1,105 +1,63 @@
-# Releasing Shello
+# Deployment and releases
 
-The distributable product is the Rust Agent. The release workflow tests
-and packages only <code>agent/</code>; deploy the web application separately through
-Wrangler.
+The web application deploys to Cloudflare Workers. Agent binaries are distributed
+through GitHub Releases.
 
-## Configuration
+## Web deployment
 
-| Setting | Value |
-| --- | --- |
-| Worker name | `shello` |
-| GitHub repository | `jiayx/shello` |
-| Bootstrap repository variable | `BOOTSTRAP_GITHUB_REPOSITORY=jiayx/shello` |
-| Agent executable | `shello-agent` |
-| Diagnostic environment variable | `SHELLO_TRACE` |
-| Nested-agent marker | `SHELLO_AGENT_ACTIVE` |
-| Durable Object class | `TTYSession` |
-| Durable Object binding | `TTY_SESSION` |
-
-The bootstrap downloads Agent assets from the configured repository's latest release.
-Each release must contain the platform binaries and `checksums.txt` listed below.
-Browser viewer identity is stored per origin and session in `sessionStorage`.
-
-## Versioning
-
-The Agent package version in <code>agent/Cargo.toml</code> and the Git tag use the same
-semantic version, with a <code>v</code> prefix on the tag:
-
-~~~text
-agent/Cargo.toml  <version>
-Git tag           v<version>
-~~~
-
-Release notes describe the current version’s capabilities and behavior. The release
-script reads the matching version section in `CHANGELOG.md`; each section uses an
-`Added`, `Changed`, `Fixed`, `Removed`, or `Security` category heading. Development
-history, migration narratives, and commit summaries do not belong in published notes.
-
-## Pre-release checklist
-
-From the repository root:
+Requires a Cloudflare account. From the repository root:
 
 ~~~bash
-cd agent
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked --release --all-targets
-cargo build --locked --release
-cd ..
+pnpm install
 pnpm build
-git diff --check
-git status --short
+pnpm run deploy
 ~~~
 
-The working tree should contain only the intentional release changes. Verify that the
-bootstrap configuration in <code>apps/web/wrangler.jsonc</code> points to the repository
-whose release assets will be served.
+Configuration lives in [wrangler.jsonc](../apps/web/wrangler.jsonc):
 
-## Prepare and publish
+| Setting | Default |
+| --- | --- |
+| Worker | `shello` |
+| Durable Object class / binding | `TTYSession` / `TTY_SESSION` |
+| `BOOTSTRAP_GITHUB_REPOSITORY` | `jiayx/shello` |
 
-Prepare the next version:
+The bootstrap uses the configured repository's latest release. Custom asset locations
+use `BOOTSTRAP_BINARY_BASE_URL` and `BOOTSTRAP_CHECKSUMS_URL`.
+
+## Agent releases
+
+The package version in `agent/Cargo.toml` matches the Git tag without its `v` prefix.
+Release notes come from the matching section in `CHANGELOG.md`, under `Added`,
+`Changed`, `Fixed`, `Removed`, or `Security` headings.
 
 ~~~bash
 ./scripts/release.sh prepare 0.3.1
-~~~
-
-This updates <code>agent/Cargo.toml</code>, <code>agent/Cargo.lock</code>, and the
-Agent README, then inserts an editable section in <code>CHANGELOG.md</code>. Replace
-the TODO with current user-visible behavior and remove the
-<code>release-draft</code> comment.
-
-Publish after reviewing the resulting diff:
-
-~~~bash
 ./scripts/release.sh publish 0.3.1
 ~~~
 
-The publish command rejects unrelated working-tree changes and unfinished CHANGELOG
-drafts. It tests both TLS feature sets, creates the release commit and annotated tag,
-then pushes <code>main</code> and the tag. For a non-interactive invocation, run
-<code>./scripts/release.sh publish 0.3.1 --yes</code>.
+`prepare` updates version metadata and creates a draft CHANGELOG section. `publish`
+requires completed notes without TODOs or the `release-draft` marker. It validates both
+TLS backends, commits release files, and pushes `main` and an annotated version tag.
+`--yes` skips the interactive confirmation.
 
-The <code>v*</code> tag triggers
-<code>.github/workflows/build-agents.yml</code>. The workflow:
+## CI
 
-1. runs formatting, clippy, and release tests on Ubuntu;
-2. runs native clippy and tests on macOS ARM64 and Windows AMD64;
-3. builds six standard target binaries plus two static musl/Rustls Linux fallbacks; and
-4. extracts the matching CHANGELOG section, generates <code>checksums.txt</code>,
-   creates the GitHub Release, and uploads every binary.
+[build-agents.yml](../.github/workflows/build-agents.yml) runs Rust checks on Ubuntu,
+macOS ARM64, and Windows AMD64.
 
-Pull requests run only the first two steps. Direct <code>main</code> pushes do not
-trigger this workflow, so a paired <code>main</code> + tag push creates exactly one
-release run. Use <code>workflow_dispatch</code> for an explicit full-build check of a
-branch; it does not publish a Release without a version tag.
+| Trigger | Result |
+| --- | --- |
+| Relevant pull request | Formatting, lint and tests |
+| `v*` tag | Checks, platform builds, checksums and GitHub Release |
+| `workflow_dispatch` on a branch | Checks and platform builds without publishing |
+| Direct `main` push | No Agent workflow |
 
-Tag runs are not cancelled by the workflow's concurrency policy, so a release build is
-allowed to finish even if a later commit is pushed.
+Portable builds use musl and Rustls. CI checks that those binaries run and contain no
+dynamic loader or shared-library dependencies.
 
-## Release assets
+## Assets and bootstrap
 
-Each GitHub Release includes:
+Each release includes these files, whose names are used by the bootstrap:
 
 ~~~text
 shello-agent-darwin-amd64
@@ -113,19 +71,12 @@ shello-agent-windows-arm64.exe
 checksums.txt
 ~~~
 
-The shell bootstrap consumes these exact names. It uses the portable Linux files only
-when the standard system-TLS Agent fails its <code>--version</code> start probe. Do not
-rename them without changing the Worker bootstrap manifest and scripts.
+`/start` and `/start.ps1` select the platform binary and verify SHA-256 before running
+it. Each invocation uses an isolated temporary directory, removed after exit. Linux
+tries the system-TLS binary first; if its `--version` probe fails, the script uses the
+static musl/Rustls fallback, which needs neither glibc nor system OpenSSL.
 
-## Post-release verification
-
-After the GitHub Action finishes, confirm that every binary and
-<code>checksums.txt</code> is attached to the release, then test the deployed bootstrap:
-
-~~~bash
-curl -fsSL https://your-shello.example/start | sh
-~~~
-
-The script must identify the platform, validate the downloaded checksum, and print a
-viewer URL after the Agent connects. Test a viewer connection, a rejected control
-request, and an approved control request before announcing the release.
+Local development serves binaries from `apps/web/public/downloads/local/`, generated
+by `./scripts/build-local-agent.sh`. Public sharing commands are in the
+[README](../README.md#start-sharing); Agent checks are in the
+[Agent reference](../agent/README.md#build-and-test).
