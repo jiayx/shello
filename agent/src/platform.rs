@@ -46,7 +46,7 @@ impl Pty {
                 &mut master,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                &mut winsize,
+                &raw mut winsize,
             )
         };
         if child < 0 {
