@@ -127,7 +127,7 @@ pnpm deploy
 
 The Worker needs a Durable Object binding. The included
 [<code>wrangler.jsonc</code>](apps/web/wrangler.jsonc) configures the production
-bootstrap to serve assets from the <code>jiayx/ttys</code> GitHub release. Set
+bootstrap to serve assets from the <code>jiayx/shello</code> GitHub release. Set
 <code>BOOTSTRAP_BINARY_BASE_URL</code> and <code>BOOTSTRAP_CHECKSUMS_URL</code> to use
 another trusted asset location, or set <code>BOOTSTRAP_GITHUB_REPOSITORY</code> for
 another GitHub repository.

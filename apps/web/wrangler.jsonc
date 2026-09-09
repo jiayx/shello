@@ -10,7 +10,7 @@
     "run_worker_first": ["/api/*", "/start", "/start.ps1", "/downloads/release/*", "/downloads/local/*"]
   },
   "vars": {
-    "BOOTSTRAP_GITHUB_REPOSITORY": "jiayx/ttys"
+    "BOOTSTRAP_GITHUB_REPOSITORY": "jiayx/shello"
   },
   "durable_objects": {
     "bindings": [

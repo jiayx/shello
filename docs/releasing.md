@@ -11,10 +11,8 @@ The CLI and release assets now use `shello-agent`; environment variables use
 assets before deploying the updated bootstrap. Older releases only contain the old
 asset names and cannot satisfy the new download requests.
 
-The configured GitHub repository remains `jiayx/ttys`, matching the existing Git
-remote. This is an external resource address, not the product name. After renaming
-the GitHub repository, update `BOOTSTRAP_GITHUB_REPOSITORY` and the local Git remote
-together. Until then, publish the new assets to the existing repository.
+The GitHub repository is `jiayx/shello`. `BOOTSTRAP_GITHUB_REPOSITORY` and the
+local Git remote both point to that repository, which hosts the Agent releases.
 
 The default Worker name is now `shello`. This targets a separate deployment from the
 old Worker; it does not rename the deployed service or transfer its active sessions.
