@@ -1,4 +1,5 @@
 import { t, locale } from "./i18n";
+import { parsePairingInput } from "./pairing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   mountTerminal,
@@ -68,6 +69,18 @@ export function App() {
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [pairingInput, setPairingInput] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const joinRequest = useRef<AbortController | null>(null);
+  const [codeCopyLabel, setCodeCopyLabel] = useState<CopyLabel>("Copy");
+  const codeCopyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    joinRequest.current?.abort();
+    if (codeCopyTimerRef.current !== null) window.clearTimeout(codeCopyTimerRef.current);
+  }, []);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [requestingControl, setRequestingControl] = useState(false);
   const [showControlHint, setShowControlHint] = useState(false);
@@ -574,8 +587,45 @@ export function App() {
     };
   }, [sessionId]);
 
+  async function joinSession(event: React.FormEvent) {
+    event.preventDefault();
+    if (joining || creating) return;
+    const code = parsePairingInput(pairingInput, window.location.origin);
+    if (!code) {
+      setJoinError("Enter a valid pairing code or a sharing link from this site.");
+      return;
+    }
+    setPairingInput(code);
+    setJoinError(null);
+    setJoining(true);
+    const request = new AbortController();
+    joinRequest.current = request;
+    try {
+      const response = await fetch(`/api/session/${code}`, { signal: request.signal });
+      if (request.signal.aborted) return;
+      if (response.status === 404 || response.status === 410) {
+        setJoinError("This session does not exist or has expired. Check the code with the host.");
+        return;
+      }
+      if (!response.ok) throw new Error("Could not join session");
+      const status = await response.json() as SessionStatus;
+      if (request.signal.aborted) return;
+      if (status.state === "idle" || status.state === "closed") {
+        setJoinError("This session does not exist or has expired. Check the code with the host.");
+        return;
+      }
+      window.history.pushState({}, "", `/s/${code}`);
+      setSessionId(code);
+      setStatusNote(null);
+    } catch {
+      if (!request.signal.aborted) setJoinError("Could not join the session. Please try again.");
+    } finally {
+      if (!request.signal.aborted) setJoining(false);
+    }
+  }
+
   async function createSession(options: { openInNewTab?: boolean } = {}) {
-    if (creating) return;
+    if (creating || joining) return;
     const openInNewTab = Boolean(sessionId) || options.openInNewTab;
     // Reserve the tab during the click so popup blockers do not reject it after fetch.
     const newTab = openInNewTab ? window.open("about:blank", "_blank") : null;
@@ -614,7 +664,7 @@ export function App() {
       socket.current = null;
       setSessionId(created.sessionId);
       reconnectAttempts.current = 0;
-      window.history.replaceState({}, "", createdInfo.viewerUrl);
+      window.history.pushState({}, "", createdInfo.viewerUrl);
       previousStatusRef.current = null;
       setStatusNote(null);
       setSessionStatus(null);
@@ -832,12 +882,12 @@ export function App() {
           <img src="/logo.svg" alt="" className="h-7 w-7" />
           <h1 className="text-base font-semibold tracking-tight text-amber-400">Shello</h1>
         </a>
-        <span className="workspace-connection text-xs" data-tone={connectionTone} role="status">{t(connectionLabel)}</span>
-        <span className="hidden text-xs text-stone-500 sm:inline">{sessionId || t("One command. Share your shell.")}</span>
+        {sessionId && <span className="workspace-connection text-xs" data-tone={connectionTone} role="status">{t(connectionLabel)}</span>}
+        {sessionId ? <button className="workspace-button font-mono" title={t("Copy pairing code")} aria-label={t("Copy pairing code")} onClick={() => void handleCopy(sessionId, setCodeCopyLabel, codeCopyTimerRef)}>{codeCopyLabel === "Copy" ? sessionId : t(codeCopyLabel)}</button> : <span className="hidden text-xs text-stone-500 sm:inline">{t("One command. Share your shell.")}</span>}
         <div className="workspace-actions">
           <button className="workspace-button" title={sessionId ? t("Create a session in a new tab") : t("Create session")} onClick={handleCreateSessionClick} onAuxClick={(event) => {
             if (event.button === 1) { event.preventDefault(); void createSession({ openInNewTab: true }); }
-          }} disabled={creating}>{t(createSessionLabel)}</button>
+          }} disabled={creating || joining}>{t(createSessionLabel)}</button>
           {sessionId && <>
             <button className="workspace-button" onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel === "Copy" ? t("Copy link") : t(shareCopyLabel)}</button>
             <button className="workspace-button control-button" data-guided={showControlHint && !sessionStatus?.canWrite && canRequestControl && !requestingControl} data-tone={statusTone} onClick={sessionStatus?.canWrite ? releaseControl : requestControl} disabled={transportState !== "connected" || (!sessionStatus?.canWrite && (!canRequestControl || requestingControl))}>{t(requestControlLabel)}</button>
@@ -898,16 +948,29 @@ export function App() {
             <p className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-amber-400">{t("Your shell, shared.")}</p>
             <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{sessionId ? t("Run once. You're connected.") : t("One command. Share your shell.")}</h2>
             <p className="mt-3 text-sm leading-6 text-stone-400">{sessionId ? t("Run the command in your local terminal, then send the link to your collaborator.") : t("Share your local command line through a browser link. No manual installation.")}</p>
-            {sessionId ? <div className="mt-7">{setupFields}</div> : <button className="workspace-button start-button" disabled={creating} onClick={handleCreateSessionClick}>{creating ? t("Creating...") : t("Start sharing")}<span aria-hidden="true"> →</span></button>}
+            {sessionId ? <div className="mt-7">{setupFields}</div> : <>
+              <div className="home-actions">
+                <button className="workspace-button start-button" disabled={creating || joining} onClick={handleCreateSessionClick}>{creating ? t("Creating...") : t("Start sharing")}<span aria-hidden="true"> →</span></button>
+                <button className="workspace-button join-toggle" disabled={creating || joining} aria-expanded={joinOpen} aria-controls="join-session" onClick={() => setJoinOpen(!joinOpen)}>{t("Join sharing")}</button>
+              </div>
+              {joinOpen && <form id="join-session" className="join-form" onSubmit={joinSession} aria-busy={joining}>
+                <label htmlFor="pairing-code" className="text-sm text-stone-300">{t("Pairing code or sharing link")}</label>
+                <div className="join-input-row">
+                  <input id="pairing-code" autoFocus autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="abc-234" value={pairingInput} disabled={joining} aria-invalid={Boolean(joinError)} aria-describedby={joinError ? "join-error" : "join-help"} onChange={(event) => { setPairingInput(event.target.value); setJoinError(null); }} />
+                  <button type="submit" className="workspace-button" disabled={joining || creating || !pairingInput.trim()}>{t(joining ? "Joining..." : "Join")}</button>
+                </div>
+                {joinError ? <p id="join-error" role="alert" className="mt-2 text-xs text-amber-300">{t(joinError)}</p> : <p id="join-help" className="mt-2 text-xs text-stone-500">{t("Ask the host for their code. You join read-only and can request control.")}</p>}
+              </form>}
+            </>}
             <p className="mt-5 text-xs leading-5 text-stone-500">{t("Viewers join in their browser. You approve who can type.")}</p>
           </div>
         </div>}
       </section>
 
       <footer className="workspace-status" data-tone={statusTone}>
-        <span className="workspace-status-label shrink-0">{connecting ? t("Connecting") : t(modeLabel)}</span>
-        <p className="min-w-0 flex-1" role="status">{t(accessDescription)}</p>
-        <span className="hidden shrink-0 sm:inline">{t("{count} viewers", { count: sessionStatus?.viewerCount ?? 0 })}</span>
+        {sessionId && <span className="workspace-status-label shrink-0">{connecting ? t("Connecting") : t(modeLabel)}</span>}
+        <p className="min-w-0 flex-1" role="status">{t(sessionId ? accessDescription : statusNote ?? "Start sharing, or enter a pairing code to join.")}</p>
+        {sessionId && <span className="hidden shrink-0 sm:inline">{t("{count} viewers", { count: sessionStatus?.viewerCount ?? 0 })}</span>}
       </footer>
     </main>
   );

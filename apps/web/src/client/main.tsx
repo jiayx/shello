@@ -1,11 +1,21 @@
 import { t, locale } from "./i18n";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./app";
 import { ReplayDebug } from "./replay-debug";
 import "./styles.css";
 
 function Router() {
+  const [navigation, setNavigation] = useState(0);
+
+  useEffect(() => {
+    // Remount even when Back returns to the initial pathname: App may have
+    // created a session with pushState without remounting the router.
+    const handlePopState = () => setNavigation((value) => value + 1);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   if (window.location.pathname === "/debug/replay") {
     return <ReplayDebug />;
   }
@@ -14,7 +24,7 @@ function Router() {
     return <NotFound />;
   }
 
-  return <App />;
+  return <App key={navigation} />;
 }
 
 function isKnownRoute(pathname: string) {

@@ -222,3 +222,12 @@ body {
   box-shadow: none !important;
   border-bottom: none !important;
 }
+
+.home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 28px; }
+.home-actions .start-button { margin-top: 0; }
+.join-toggle { padding: 10px 18px; font-size: 14px; }
+.join-form { margin-top: 20px; max-width: 480px; }
+.join-input-row { display: flex; gap: 8px; margin-top: 8px; }
+.join-input-row input { min-width: 0; flex: 1; border: 1px solid #44403c; border-radius: 8px; background: #1c1917; padding: 10px 12px; color: #f5f5f4; font-size: 16px; }
+.join-input-row input:focus { outline: 2px solid #fbbf24; outline-offset: 2px; }
+.join-input-row input[aria-invalid="true"] { border-color: #fbbf24; }

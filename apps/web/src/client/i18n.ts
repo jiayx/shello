@@ -5,6 +5,16 @@ const preferredLanguage = typeof navigator === "undefined"
 export const locale = /^zh(?:-|$)/i.test(preferredLanguage) ? "zh-CN" : "en";
 
 const chinese: Record<string, string> = {
+  "Join sharing": "加入共享",
+  "Join": "加入",
+  "Joining...": "正在加入…",
+  "Pairing code or sharing link": "配对码或分享链接",
+  "Copy pairing code": "复制配对码",
+  "Ask the host for their code. You join read-only and can request control.": "向共享方获取配对码。加入后默认只读，可申请控制。",
+  "Enter a valid pairing code or a sharing link from this site.": "请输入有效的配对码，或本站的分享链接。",
+  "This session does not exist or has expired. Check the code with the host.": "会话不存在或已过期，请向共享方确认配对码。",
+  "Could not join the session. Please try again.": "暂时无法加入会话，请重试。",
+  "Start sharing, or enter a pairing code to join.": "开始共享，或输入配对码加入已有共享。",
   "One command. Share your shell.": "一条命令，共享本地终端。",
   "Your shell, shared.": "你的终端，随时共享。",
   "Run once. You're connected.": "运行一条命令，即可连接。",
