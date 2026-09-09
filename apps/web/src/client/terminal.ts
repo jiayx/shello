@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -23,6 +24,9 @@ export type TerminalController = {
   write: (value: string | Uint8Array) => void;
   writeln: (value: string) => void;
 };
+
+Terminal.strings.promptLabel = t("Terminal input");
+Terminal.strings.tooMuchOutput = t("Too much output to announce, navigate to rows manually to read");
 
 const terminalWriteFlushDelayMs = 8;
 const terminalWriteMaxBatchBytes = 64 * 1024;

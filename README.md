@@ -19,7 +19,7 @@ environment variables use the `SHELLO_*` prefix.
 - <code>agent</code>: Rust host agent for macOS, Linux, and Windows
 - <code>scripts</code>: local development and bootstrap helpers
 
-There is one supported host-agent implementation. It creates or attaches to a session,
+The Rust Agent creates or attaches to a session,
 runs a local shell in a PTY, reconnects after transient network failures, batches
 terminal output, synchronizes terminal metadata, and requires a local decision before
 a viewer can write to the shell.
@@ -64,7 +64,7 @@ flowchart LR
   A <--> D["Durable Object<br/>session state"]
   D <--> V["Viewer browser<br/>xterm.js"]
   W["Worker<br/>API + bootstrap"] --> D
-  W --> R["GitHub Release<br/>signed-by-checksum assets"]
+  W --> R["GitHub Release<br/>SHA-256-verified assets"]
 ~~~
 
 The Agent opens an outbound WebSocket and owns the real shell and PTY. The Durable
@@ -109,6 +109,10 @@ controls.
 - Rust stable toolchain
 - A Cloudflare account for deployment
 
+The web interface automatically uses Chinese for browsers whose primary language is
+Chinese, and English otherwise. This covers controls, session status, startup guidance,
+and replay diagnostics; host terminal output is displayed unchanged.
+
 ## Web development
 
 Install dependencies and start the local web app:
@@ -122,7 +126,7 @@ Build or deploy the Worker:
 
 ~~~bash
 pnpm build
-pnpm deploy
+pnpm run deploy
 ~~~
 
 The Worker needs a Durable Object binding. The included
@@ -209,10 +213,10 @@ This produces:
 ## CI and releases
 
 [<code>.github/workflows/build-agents.yml</code>](.github/workflows/build-agents.yml)
-is intentionally Agent-only: it runs when <code>agent/**</code> or the workflow
+builds the Agent: it runs when <code>agent/**</code> or the workflow
 changes. Pull requests perform the Rust quality gate on Ubuntu and native lint/test
 checks on macOS ARM64 and Windows AMD64. A <code>v*</code> tag repeats those checks
-once, then builds the six delivery targets:
+once, then builds these eight release assets:
 
 - <code>shello-agent-darwin-amd64</code>
 - <code>shello-agent-darwin-arm64</code>
@@ -237,4 +241,4 @@ pre-merge CI, or <code>workflow_dispatch</code> for an explicit manual full-buil
 - [Architecture and runtime behavior](docs/architecture.md)
 - [Release process](docs/releasing.md)
 - [Agent reference](agent/README.md)
-- [Change log](CHANGELOG.md)
+- [Release notes](CHANGELOG.md)

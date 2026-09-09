@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { useEffect, useRef, useState } from "react";
 import { mountTerminal, type TerminalController, type TerminalSize } from "./terminal";
 
@@ -9,7 +10,7 @@ export function ReplayDebug() {
   const replayTimer = useRef<number | null>(null);
   const [size, setSize] = useState(defaultSize);
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
-  const [status, setStatus] = useState("Load a SHELLO_TRACE file to replay raw PTY output.");
+  const [status, setStatus] = useState(t("Load a SHELLO_TRACE file to replay raw PTY output."));
 
   useEffect(() => {
     if (!terminalRef.current) {
@@ -38,24 +39,24 @@ export function ReplayDebug() {
 
     const loaded = new Uint8Array(await file.arrayBuffer());
     setBytes(loaded);
-    setStatus(`Loaded ${file.name} (${loaded.byteLength} bytes).`);
+    setStatus(t("Loaded {name} ({count} bytes).", { name: file.name, count: loaded.byteLength }));
   }
 
   function replayAll() {
     if (!bytes) {
-      setStatus("Load a trace first.");
+      setStatus(t("Load a trace first."));
       return;
     }
     stopReplay();
     terminal.current?.reset();
     terminal.current?.resize(size);
     terminal.current?.write(bytes);
-    setStatus(`Replayed ${bytes.byteLength} bytes at ${size.cols}x${size.rows}.`);
+    setStatus(t("Replayed {count} bytes at {cols}x{rows}.", { count: bytes.byteLength, ...size }));
   }
 
   function replaySlow() {
     if (!bytes) {
-      setStatus("Load a trace first.");
+      setStatus(t("Load a trace first."));
       return;
     }
     stopReplay();
@@ -67,10 +68,10 @@ export function ReplayDebug() {
       const chunk = bytes.subarray(offset, offset + 256);
       terminal.current?.write(chunk);
       offset += chunk.byteLength;
-      setStatus(`Replaying ${Math.min(offset, bytes.byteLength)} / ${bytes.byteLength} bytes.`);
+      setStatus(t("Replaying {current} / {total} bytes.", { current: Math.min(offset, bytes.byteLength), total: bytes.byteLength }));
       if (offset >= bytes.byteLength) {
         stopReplay();
-        setStatus(`Finished slow replay at ${size.cols}x${size.rows}.`);
+        setStatus(t("Finished slow replay at {cols}x{rows}.", size));
       }
     }, 16);
   }
@@ -89,21 +90,21 @@ export function ReplayDebug() {
           <a href="/" className="text-sm text-amber-300 hover:text-amber-200">
             Shello
           </a>
-          <span className="text-sm text-stone-500">Raw PTY replay</span>
+          <span className="text-sm text-stone-500">{t("Raw PTY replay")}</span>
           <label className="text-sm text-stone-300">
-            Trace file
+            {t("Trace file")}
             <input className="ml-2 text-sm" type="file" onChange={handleFile} />
           </label>
-          <NumberField label="Cols" value={size.cols} onChange={(cols) => setSize({ ...size, cols })} />
-          <NumberField label="Rows" value={size.rows} onChange={(rows) => setSize({ ...size, rows })} />
+          <NumberField label={t("Cols")} value={size.cols} onChange={(cols) => setSize({ ...size, cols })} />
+          <NumberField label={t("Rows")} value={size.rows} onChange={(rows) => setSize({ ...size, rows })} />
           <button className="rounded-lg bg-white px-3 py-1.5 text-sm text-stone-950" onClick={replayAll}>
-            Replay
+            {t("Replay")}
           </button>
           <button className="rounded-lg border border-white/10 px-3 py-1.5 text-sm" onClick={replaySlow}>
-            Slow replay
+            {t("Slow replay")}
           </button>
           <button className="rounded-lg border border-white/10 px-3 py-1.5 text-sm" onClick={stopReplay}>
-            Stop
+            {t("Stop")}
           </button>
           <p className="basis-full text-sm text-stone-400">{status}</p>
         </div>

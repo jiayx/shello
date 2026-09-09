@@ -1,29 +1,25 @@
 # Releasing Shello
 
-The distributable product is the Rust Agent. The release workflow intentionally tests
+The distributable product is the Rust Agent. The release workflow tests
 and packages only <code>agent/</code>; deploy the web application separately through
 Wrangler.
 
-## Shello naming transition
+## Configuration
 
-The CLI and release assets now use `shello-agent`; environment variables use
-`SHELLO_TRACE` and `SHELLO_AGENT_ACTIVE`. Publish a release containing the renamed
-assets before deploying the updated bootstrap. Older releases only contain the old
-asset names and cannot satisfy the new download requests.
+| Setting | Value |
+| --- | --- |
+| Worker name | `shello` |
+| GitHub repository | `jiayx/shello` |
+| Bootstrap repository variable | `BOOTSTRAP_GITHUB_REPOSITORY=jiayx/shello` |
+| Agent executable | `shello-agent` |
+| Diagnostic environment variable | `SHELLO_TRACE` |
+| Nested-agent marker | `SHELLO_AGENT_ACTIVE` |
+| Durable Object class | `TTYSession` |
+| Durable Object binding | `TTY_SESSION` |
 
-The GitHub repository is `jiayx/shello`. `BOOTSTRAP_GITHUB_REPOSITORY` and the
-local Git remote both point to that repository, which hosts the Agent releases.
-
-The default Worker name is now `shello`. This targets a separate deployment from the
-old Worker; it does not rename the deployed service or transfer its active sessions.
-To update the existing deployment in place, retain its deployed Worker name during
-the transition. Coordinate routes and domains when switching to the new deployment.
-The `TTYSession` class, `TTY_SESSION` binding, and migration history retain their
-technical identifiers so an in-place update does not replace the session namespace.
-
-The browser reads the legacy viewer-token key when needed and stores it under the
-new `shello.viewerToken.*` key, preserving identity on the same origin. A new origin
-has separate browser storage and cannot inherit an active viewer's authorization.
+The bootstrap downloads Agent assets from the configured repository's latest release.
+Each release must contain the platform binaries and `checksums.txt` listed below.
+Browser viewer identity is stored per origin and session in `sessionStorage`.
 
 ## Versioning
 
@@ -35,10 +31,10 @@ agent/Cargo.toml  <version>
 Git tag           v<version>
 ~~~
 
-The release script creates a draft from commits since the latest version tag. Commit
-subjects are only source material: rewrite them into user-visible
-<code>Added</code>, <code>Changed</code>, <code>Fixed</code>,
-<code>Removed</code>, or <code>Security</code> entries before publishing.
+Release notes describe the current version’s capabilities and behavior. The release
+script reads the matching version section in `CHANGELOG.md`; each section uses an
+`Added`, `Changed`, `Fixed`, `Removed`, or `Security` category heading. Development
+history, migration narratives, and commit summaries do not belong in published notes.
 
 ## Pre-release checklist
 
@@ -65,24 +61,24 @@ whose release assets will be served.
 Prepare the next version:
 
 ~~~bash
-./scripts/release.sh prepare 0.2.3
+./scripts/release.sh prepare 0.3.1
 ~~~
 
 This updates <code>agent/Cargo.toml</code>, <code>agent/Cargo.lock</code>, and the
 Agent README, then inserts an editable section in <code>CHANGELOG.md</code>. Replace
-the TODO with concise user-visible changes and remove the
+the TODO with current user-visible behavior and remove the
 <code>release-draft</code> comment.
 
 Publish after reviewing the resulting diff:
 
 ~~~bash
-./scripts/release.sh publish 0.2.3
+./scripts/release.sh publish 0.3.1
 ~~~
 
 The publish command rejects unrelated working-tree changes and unfinished CHANGELOG
 drafts. It tests both TLS feature sets, creates the release commit and annotated tag,
 then pushes <code>main</code> and the tag. For a non-interactive invocation, run
-<code>./scripts/release.sh publish 0.2.3 --yes</code>.
+<code>./scripts/release.sh publish 0.3.1 --yes</code>.
 
 The <code>v*</code> tag triggers
 <code>.github/workflows/build-agents.yml</code>. The workflow:

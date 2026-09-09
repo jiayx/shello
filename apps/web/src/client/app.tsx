@@ -1,3 +1,4 @@
+import { t, locale } from "./i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   mountTerminal,
@@ -494,10 +495,7 @@ export function App() {
         const previous = previousStatusRef.current;
         if (previous) {
           if (!previous.canWrite && payload.canWrite) {
-            const leaseUntil = payload.controlLeaseExpiresAt
-              ? new Date(payload.controlLeaseExpiresAt).toLocaleTimeString()
-              : "the lease expires";
-            setStatusNote(`Control granted. Lease active until ${leaseUntil}.`);
+            setStatusNote(null);
             terminal.current?.focus();
           } else if (previous.canWrite && !payload.canWrite) {
             setStatusNote(
@@ -772,7 +770,7 @@ export function App() {
     accessDescription = statusNote;
   } else if (sessionStatus?.canWrite) {
     accessDescription = leaseLabel
-      ? `Control is active. Lease valid until ${leaseLabel}.`
+      ? t("Control is active. Lease valid until {time}.", { time: leaseLabel })
       : "Control is active.";
   } else if (requestingControl || sessionStatus?.pendingControlRequest) {
     accessDescription = "Control request sent. Waiting for host approval.";
@@ -788,7 +786,7 @@ export function App() {
     <div className="session-fields">
       <div className="min-w-0">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-medium text-stone-200">1. Run on your computer</h2>
+          <h2 className="text-sm font-medium text-stone-200">{t("1. Run on your computer")}</h2>
           <div className="flex rounded-lg bg-white/5 p-0.5">
             <PlatformButton active={selectedPlatform === "macos"} label="macOS" onClick={() => setSelectedPlatform("macos")} />
             <PlatformButton active={selectedPlatform === "linux"} label="Linux" onClick={() => setSelectedPlatform("linux")} />
@@ -796,15 +794,15 @@ export function App() {
           </div>
         </div>
         <div className="copy-field">
-          <code>{platformCommand || "Create a session to get your command."}</code>
-          <button className="workspace-button" disabled={!platformCommand} onClick={() => void handleCopy(platformCommand, setPlatformCopyLabel, platformCopyTimerRef)}>{platformCopyLabel}</button>
+          <code>{platformCommand || t("Create a session to get your command.")}</code>
+          <button className="workspace-button" disabled={!platformCommand} onClick={() => void handleCopy(platformCommand, setPlatformCopyLabel, platformCopyTimerRef)}>{t(platformCopyLabel)}</button>
         </div>
       </div>
       <div className="min-w-0">
-        <h2 className="mb-2 text-sm font-medium text-stone-200">2. Send this link</h2>
+        <h2 className="mb-2 text-sm font-medium text-stone-200">{t("2. Send this link")}</h2>
         <div className="copy-field">
-          <code>{shareUrl || "Your sharing link will appear here."}</code>
-          <button className="workspace-button" disabled={!shareUrl} onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel}</button>
+          <code>{shareUrl || t("Your sharing link will appear here.")}</code>
+          <button className="workspace-button" disabled={!shareUrl} onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{t(shareCopyLabel)}</button>
         </div>
       </div>
     </div>
@@ -817,16 +815,16 @@ export function App() {
           <img src="/logo.svg" alt="" className="h-7 w-7" />
           <h1 className="text-base font-semibold tracking-tight text-amber-400">Shello</h1>
         </div>
-        <span className="text-xs text-stone-400" role="status">{connectionLabel}</span>
-        <span className="hidden text-xs text-stone-500 sm:inline">{sessionId || "One command. Share your shell."}</span>
+        <span className="text-xs text-stone-400" role="status">{t(connectionLabel)}</span>
+        <span className="hidden text-xs text-stone-500 sm:inline">{sessionId || t("One command. Share your shell.")}</span>
         <div className="workspace-actions">
-          <button className="workspace-button" title={sessionId ? "Create a session in a new tab" : "Create session"} onClick={handleCreateSessionClick} onAuxClick={(event) => {
+          <button className="workspace-button" title={sessionId ? t("Create a session in a new tab") : t("Create session")} onClick={handleCreateSessionClick} onAuxClick={(event) => {
             if (event.button === 1) { event.preventDefault(); void createSession({ openInNewTab: true }); }
-          }} disabled={creating}>{createSessionLabel}</button>
+          }} disabled={creating}>{t(createSessionLabel)}</button>
           {sessionId && <>
-            <button className="workspace-button" onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel === "Copy" ? "Copy link" : shareCopyLabel}</button>
-            <button ref={requestControlButtonRef} className="workspace-button control-button" onClick={requestControl} disabled={!canRequestControl || requestingControl}>{requestControlLabel}</button>
-            <button className="workspace-button" aria-expanded={detailsOpen} aria-controls="session-details" aria-haspopup="dialog" onClick={() => setDetailsOpen(!detailsOpen)}>{detailsOpen ? "Hide details" : "Session details"}</button>
+            <button className="workspace-button" onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel === "Copy" ? t("Copy link") : t(shareCopyLabel)}</button>
+            <button ref={requestControlButtonRef} className="workspace-button control-button" onClick={requestControl} disabled={!canRequestControl || requestingControl}>{t(requestControlLabel)}</button>
+            <button className="workspace-button" aria-expanded={detailsOpen} aria-controls="session-details" aria-haspopup="dialog" onClick={() => setDetailsOpen(!detailsOpen)}>{detailsOpen ? t("Hide details") : t("Session details")}</button>
           </>}
         </div>
       </header>
@@ -839,35 +837,35 @@ export function App() {
           if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) setDetailsOpen(false);
         }}>
         <div className="drawer-heading">
-          <div><h2 id="session-details-title" className="text-lg font-semibold">Session details</h2><p className="mt-1 font-mono text-xs text-stone-500">{sessionId}</p></div>
-          <button type="button" className="workspace-button" onClick={() => setDetailsOpen(false)} autoFocus aria-label="Close session details">Close ×</button>
+          <div><h2 id="session-details-title" className="text-lg font-semibold">{t("Session details")}</h2><p className="mt-1 font-mono text-xs text-stone-500">{sessionId}</p></div>
+          <button type="button" className="workspace-button" onClick={() => setDetailsOpen(false)} autoFocus aria-label={t("Close session details")}>{t("Close \u00d7")}</button>
         </div>
         {setupFields}
         <dl className="drawer-metadata">
-          <div><dt className="inline text-stone-500">Host </dt><dd className="inline">{sessionStatus?.hostState ?? "waiting"}</dd></div>
-          <div><dt className="inline text-stone-500">Viewers </dt><dd className="inline">{sessionStatus?.viewerCount ?? 0}</dd></div>
-          <div><dt className="inline text-stone-500">Control expires </dt><dd className="inline">{leaseLabel ?? "Not granted"}</dd></div>
-          <div><dt className="inline text-stone-500">Session expires </dt><dd className="inline">{sessionExpiryLabel ?? "Unknown"}</dd></div>
+          <div><dt className="inline text-stone-500">{t("Host")}</dt><dd className="inline">{t(sessionStatus?.hostState ?? "waiting")}</dd></div>
+          <div><dt className="inline text-stone-500">{t("Viewers")}</dt><dd className="inline">{sessionStatus?.viewerCount ?? 0}</dd></div>
+          <div><dt className="inline text-stone-500">{t("Control expires")}</dt><dd className="inline">{leaseLabel ?? t("Not granted")}</dd></div>
+          <div><dt className="inline text-stone-500">{t("Session expires")}</dt><dd className="inline">{sessionExpiryLabel ?? t("Unknown")}</dd></div>
         </dl>
       </dialog>
 
-      <section className="workspace-terminal" aria-label="Shared terminal">
+      <section className="workspace-terminal" aria-label={t("Shared terminal")}>
         <div ref={terminalRef} className="absolute inset-0 overflow-hidden" />
         {showSetup && <div className="workspace-setup">
           <div className="setup-content">
-            <p className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-amber-400">Your shell, shared.</p>
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{sessionId ? "Run once. You're connected." : "One command. Share your shell."}</h2>
-            <p className="mt-3 text-sm leading-6 text-stone-400">{sessionId ? "Run the command in your local terminal, then send the link to your collaborator." : "Share your local command line through a browser link. No manual installation."}</p>
-            {sessionId ? <div className="mt-7">{setupFields}</div> : <button className="workspace-button start-button" disabled={creating} onClick={handleCreateSessionClick}>{creating ? "Creating..." : "Start sharing"}<span aria-hidden="true"> →</span></button>}
-            <p className="mt-5 text-xs leading-5 text-stone-500">Viewers join in their browser. You approve who can type.</p>
+            <p className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-amber-400">{t("Your shell, shared.")}</p>
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{sessionId ? t("Run once. You're connected.") : t("One command. Share your shell.")}</h2>
+            <p className="mt-3 text-sm leading-6 text-stone-400">{sessionId ? t("Run the command in your local terminal, then send the link to your collaborator.") : t("Share your local command line through a browser link. No manual installation.")}</p>
+            {sessionId ? <div className="mt-7">{setupFields}</div> : <button className="workspace-button start-button" disabled={creating} onClick={handleCreateSessionClick}>{creating ? t("Creating...") : t("Start sharing")}<span aria-hidden="true"> →</span></button>}
+            <p className="mt-5 text-xs leading-5 text-stone-500">{t("Viewers join in their browser. You approve who can type.")}</p>
           </div>
         </div>}
       </section>
 
       <footer className="workspace-status">
-        <span className="shrink-0 text-stone-300">{connecting ? "Connecting" : modeLabel}</span>
-        <p className="min-w-0 flex-1" role="status">{accessDescription}</p>
-        <span className="hidden shrink-0 sm:inline">{sessionStatus?.viewerCount ?? 0} viewers</span>
+        <span className="shrink-0 text-stone-300">{connecting ? t("Connecting") : t(modeLabel)}</span>
+        <p className="min-w-0 flex-1" role="status">{t(accessDescription)}</p>
+        <span className="hidden shrink-0 sm:inline">{t("{count} viewers", { count: sessionStatus?.viewerCount ?? 0 })}</span>
       </footer>
     </main>
   );
@@ -1070,16 +1068,16 @@ function formatDeadline(timestamp: number | null, now: number) {
 
   const remainingMs = timestamp - now;
   if (remainingMs <= 0) {
-    return "Expired";
+    return t("Expired");
   }
 
   const remainingSeconds = Math.ceil(remainingMs / 1000);
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
   const relative =
-    minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, "0")}s left` : `${seconds}s left`;
+    minutes > 0 ? t("{minutes}m {seconds}s left", { minutes, seconds: String(seconds).padStart(2, "0") }) : t("{seconds}s left", { seconds });
 
-  return `${new Date(timestamp).toLocaleTimeString()} (${relative})`;
+  return `${new Date(timestamp).toLocaleTimeString(locale)} (${relative})`;
 }
 
 function transportLabel(value: string) {

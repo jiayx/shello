@@ -1,7 +1,7 @@
 # shello-agent
 
-The single supported host agent for shello, written in Rust. It runs the local shell in a
-PTY and connects that PTY to a shello session over an outbound WebSocket.
+The Shello host agent is written in Rust. It runs the local shell in a
+PTY and connects that PTY to a Shello session over an outbound WebSocket.
 
 It creates or attaches to a terminal-sharing session, launches the local shell in a
 PTY, forwards terminal I/O over WebSocket, reconnects after transient failures, and
@@ -11,7 +11,7 @@ can choose matching xterm.js behavior.
 
 ## Behavior
 
-- Creates a session through an HTTP(S) shello server, or attaches to an existing
+- Creates a session through an HTTP(S) Shello server, or attaches to an existing
   <code>xxx-xxx</code> session.
 - Launches a shell inside a local PTY and mirrors output to the host terminal and the
   remote session.
@@ -100,7 +100,7 @@ Set <code>SHELLO_TRACE</code> to record raw PTY output for browser-rendering dia
 SHELLO_TRACE=/tmp/shello.trace cargo run -- -server http://localhost:5173
 ~~~
 
-Load that file in <code>/debug/replay</code> on the same shello web deployment to
+Load that file in <code>/debug/replay</code> on the same Shello web deployment to
 reproduce output in xterm.js without a WebSocket session.
 
 ## Source layout and tests
@@ -109,7 +109,7 @@ The binary entry point in <code>src/main.rs</code> owns startup orchestration an
 top-level error handling. Its supporting code is split into a small set of
 responsibility-based modules: <code>cli</code>, <code>connection</code>,
 <code>protocol</code>, <code>terminal</code>, and <code>transport</code>. Platform
-PTY implementations and the selectable TLS backends remain separate
+PTY implementations and the selectable TLS backends are separate
 infrastructure modules.
 
 Private behavior is tested next to its implementation in each module's
