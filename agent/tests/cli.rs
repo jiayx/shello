@@ -21,7 +21,8 @@ fn reports_invalid_arguments() {
     let output = agent().arg("--unknown").output().unwrap();
 
     assert!(!output.status.success());
-    assert!(String::from_utf8(output.stderr)
-        .unwrap()
-        .contains("shello-agent: unknown argument: --unknown"));
+    assert!(String::from_utf8(output.stderr).unwrap().contains(&format!(
+        "shello-agent v{}: unknown argument: --unknown",
+        env!("CARGO_PKG_VERSION")
+    )));
 }
