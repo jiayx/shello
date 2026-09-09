@@ -6,7 +6,9 @@
 
 <p align="center">One command. Share your shell.</p>
 
-<p align="center"><a href="https://shello.tools.tf/">Try Shello · 在线体验</a></p>
+<p align="center">English · <a href="README.zh-CN.md">简体中文</a></p>
+
+<p align="center"><a href="https://shello.tools.tf/">Try Shello</a></p>
 
 Share your local shell through a browser link with one command. No installation or
 inbound ports required. Available for macOS, Linux, and Windows.
