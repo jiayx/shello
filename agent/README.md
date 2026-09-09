@@ -22,10 +22,16 @@ can choose matching xterm.js behavior.
 - Prompts in the local terminal for every remote-control request: <code>Y</code>
   approves; <code>N</code>, Return, Ctrl-C, and Escape reject.
 
-While an approval prompt is visible, PTY output is held locally (up to 1 MiB) and is not
-sent to viewers. The buffer is restored after the decision; if it fills, the Agent shows
-a local warning. This prevents remote activity from obscuring the host's authorization
-decision.
+A persistent local status bar displays sharing, control, approval, and connection state.
+The child PTY uses the remaining rows. Output continues while approval is pending.
+Each new control request emits one terminal bell; repeated status updates do not repeat
+it. The terminal application determines whether the bell is audible, visual, or muted.
+The compositor synchronizes supported input and display modes with the child, and
+isolates unsupported terminal-control sequences from the physical terminal. On exit,
+it leaves the alternate screen and restores OS terminal settings. Only private modes
+actually affected by Shello are saved and restored on terminals with xterm mode-saving
+support. Application modes already disabled by the child are not reset again; only
+still-active modes are released before leaving.
 
 ## Usage
 

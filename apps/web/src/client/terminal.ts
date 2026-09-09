@@ -20,6 +20,7 @@ export type TerminalController = {
   onData: (handler: (value: string) => void) => () => void;
   reset: () => void;
   resize: (size: TerminalSize) => void;
+  setCursorVisible: (visible: boolean) => void;
   setHostTerminalProfile: (profile: HostTerminalProfile | null) => void;
   write: (value: string | Uint8Array) => void;
   writeln: (value: string) => void;
@@ -36,16 +37,24 @@ const textEncoder = new TextEncoder();
 export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize): TerminalController {
   const viewport = document.createElement("div");
   const surface = document.createElement("div");
+  viewport.className = "shello-terminal-viewport";
+  viewport.dataset.cursorHidden = "true";
   viewport.style.width = "100%";
   viewport.style.height = "100%";
-  viewport.style.overflow = "auto";
+  viewport.style.overflow = "hidden";
+  viewport.style.position = "relative";
   surface.style.width = "100%";
   surface.style.height = "100%";
   container.appendChild(viewport);
   viewport.appendChild(surface);
+  surface.style.transformOrigin = "center";
+  surface.style.position = "absolute";
+  surface.style.left = "50%";
+  surface.style.top = "50%";
 
   const baseFontSize = 14;
   const terminal = new Terminal({
+    scrollOnEraseInDisplay: true,
     cursorBlink: true,
     fontFamily: '"SFMono-Regular", ui-monospace, monospace',
     fontSize: baseFontSize,
@@ -54,20 +63,16 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
       foreground: "#f5f5f4",
       cursor: "#fbbf24",
       selectionBackground: "#44403c",
+      scrollbarSliderBackground: "transparent",
+      scrollbarSliderHoverBackground: "transparent",
+      scrollbarSliderActiveBackground: "transparent",
     },
   });
   const fit = new FitAddon();
 
   terminal.loadAddon(fit);
   terminal.open(surface);
-  // Keep host dimensions intact; scroll when the minimum readable font no longer fits.
-  function syncSurfaceSize() {
-    const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
-    if (!screen) return;
-    surface.style.minWidth = `${screen.offsetWidth + 16}px`;
-    surface.style.minHeight = `${screen.offsetHeight}px`;
-  }
-  const renderSubscription = terminal.onRender(syncSurfaceSize);
+  const renderSubscription = terminal.onRender(() => updateScale());
   if (initialSize) {
     terminal.resize(initialSize.cols, initialSize.rows);
   }
@@ -98,7 +103,8 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
   }
 
   function handleWindowResize() {
-    scheduleFit(Math.round(viewport.clientWidth), Math.round(viewport.clientHeight));
+    const bounds = viewport.getBoundingClientRect();
+    scheduleFit(bounds.width, bounds.height);
   }
 
   function updateScale() {
@@ -106,33 +112,21 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
       return;
     }
 
-    terminal.options.fontSize = baseFontSize;
-    const cellSize = measureCellSize();
-    if (!cellSize) {
-      return;
-    }
-
-    const scale = Math.min(
-      viewport.clientWidth / (currentSize.cols * cellSize.width),
-      viewport.clientHeight / (currentSize.rows * cellSize.height),
-      1,
-    );
-    terminal.options.fontSize = Math.max(8, Math.floor(baseFontSize * scale * 100) / 100);
-  }
-
-  function measureCellSize() {
-    const rowsElement = terminal.element?.querySelector<HTMLElement>(".xterm-rows");
-    const rowElement = rowsElement?.firstElementChild as HTMLElement | null;
-    if (!rowsElement || !rowElement || terminal.cols <= 0 || terminal.rows <= 0) {
-      return null;
-    }
-
-    const width = rowsElement.scrollWidth / terminal.cols;
-    const height = rowElement.getBoundingClientRect().height;
-    if (width <= 0 || height <= 0) {
-      return null;
-    }
-    return { width, height };
+    // Measure the rendered screen, not individual text rows. This also works
+    // with alternate-screen TUIs and renderers that do not expose .xterm-rows.
+    const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
+    if (!screen || !screen.offsetWidth || !screen.offsetHeight) return;
+    const width = screen.offsetWidth + 16;
+    const height = screen.offsetHeight;
+    // clientWidth/clientHeight round fractional CSS pixels and can overshoot the
+    // available area by a pixel, producing an extra scrollbar or clipping a row.
+    const available = viewport.getBoundingClientRect();
+    if (available.width <= 0 || available.height <= 0) return;
+    const scale = Math.min(available.width / width, available.height / height);
+    viewport.style.setProperty("--terminal-scale", String(scale));
+    surface.style.width = `${width}px`;
+    surface.style.height = `${height}px`;
+    surface.style.transform = `translate(-50%, -50%) scale(${scale})`;
   }
 
   window.addEventListener("resize", handleWindowResize);
@@ -190,6 +184,11 @@ export function mountTerminal(container: HTMLElement, initialSize?: TerminalSize
         terminal.resize(size.cols, size.rows);
       }
       updateScale();
+    },
+    setCursorVisible(visible) {
+      // xterm resolves theme colors to opaque colors; CSS suppresses the actual
+      // DOM cursor decoration while leaving terminal text and host modes intact.
+      viewport.dataset.cursorHidden = String(!visible);
     },
     setHostTerminalProfile(profile) {
       terminal.options.windowsPty =

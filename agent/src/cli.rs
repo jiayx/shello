@@ -51,7 +51,7 @@ pub(crate) fn parse_args(args: impl Iterator<Item = String>) -> Result<Command> 
     Ok(Command::Run(config))
 }
 
-fn validate_session_id(session_id: &str) -> Result<()> {
+pub(crate) fn validate_session_id(session_id: &str) -> Result<()> {
     let valid = session_id.len() == 7
         && session_id.as_bytes().get(3) == Some(&b'-')
         && session_id

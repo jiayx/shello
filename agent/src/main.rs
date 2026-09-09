@@ -5,6 +5,7 @@ compile_error!("a TLS backend is required");
 
 mod cli;
 mod connection;
+mod output;
 #[cfg(unix)]
 mod platform;
 #[cfg(windows)]
@@ -60,20 +61,20 @@ impl From<tungstenite::Error> for Error {
 use cli::{parse_args, Command};
 use connection::resolve_connection;
 use platform::{default_shell, terminal_size, Pty, RawTerminal};
-use protocol::{ControlRequest, Outgoing, PtyInput};
+use protocol::{Outgoing, PtyInput, SessionStatus};
 use std::env;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use terminal::{
-    enqueue, pty_input_loop, pty_output_loop, resize_loop, status_loop, stdin_loop,
-    terminal_size_frame, trace_writer, ApprovalModal,
+    content_size, pty_input_loop, pty_output_loop, resize_loop, status_loop, stdin_loop,
+    terminal_size_frame, trace_writer, HostTerminal,
 };
 use transport::websocket_loop;
 
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const NESTED_AGENT_ENV: &str = "SHELLO_AGENT_ACTIVE";
-const OUTPUT_QUEUE_CAPACITY: usize = 256;
+const OUTPUT_QUEUE_CAPACITY: usize = 1024 * 1024;
 const CONTROL_QUEUE_CAPACITY: usize = 4;
 const PTY_INPUT_QUEUE_CAPACITY: usize = 64;
 const STATUS_QUEUE_CAPACITY: usize = 8;
@@ -96,42 +97,57 @@ fn run() -> Result<()> {
     eprintln!("shello-agent v{AGENT_VERSION}");
     let connect = resolve_connection(&config)?;
     let shell = config.shell.unwrap_or_else(default_shell);
-    let mut pty = Pty::spawn(&shell)?;
+    let size = terminal_size()?;
+    let mut pty = Pty::spawn(&shell, content_size(size))?;
 
-    eprintln!("shello-agent: shared shell is active.");
-    eprintln!("Share URL: {}", connect.viewer_url);
-    if cfg!(windows) {
-        eprintln!("Exit the shared shell with 'exit'.\n");
+    let exit_hint = if cfg!(windows) {
+        "Exit the shared shell with 'exit'."
     } else {
-        eprintln!("Exit the shared shell with Ctrl-D or 'exit'.\n");
-    }
+        "Exit the shared shell with Ctrl-D or 'exit'."
+    };
+    let banner = format!(
+        "shello-agent v{AGENT_VERSION}\r\nshello-agent: shared shell is active.\r\nShare URL: {}\r\n{exit_hint}\r\n\r\n",
+        connect.viewer_url
+    );
 
     let raw_terminal = RawTerminal::enter()?;
 
-    let (out_tx, out_rx) = mpsc::sync_channel::<Outgoing>(OUTPUT_QUEUE_CAPACITY);
+    let (out_tx, out_rx) = output::channel(OUTPUT_QUEUE_CAPACITY);
     let (control_tx, control_rx) = mpsc::sync_channel::<Outgoing>(CONTROL_QUEUE_CAPACITY);
     let (pty_tx, pty_rx) = mpsc::sync_channel::<PtyInput>(PTY_INPUT_QUEUE_CAPACITY);
-    let (status_tx, status_rx) =
-        mpsc::sync_channel::<Option<ControlRequest>>(STATUS_QUEUE_CAPACITY);
+    let (status_tx, status_rx) = mpsc::sync_channel::<SessionStatus>(STATUS_QUEUE_CAPACITY);
+    let (shutdown_tx, shutdown_rx) = mpsc::channel();
+    let (transport_done_tx, transport_done_rx) = mpsc::channel();
     let (done_tx, done_rx) = mpsc::channel::<()>();
-    let modal = Arc::new(Mutex::new(ApprovalModal::new()));
+    let modal = Arc::new(Mutex::new(HostTerminal::new()));
 
-    if let Ok(size) = terminal_size() {
-        pty.resize(size)?;
-        modal.lock().unwrap().set_size(size)?;
-        enqueue(&out_tx, terminal_size_frame(size));
-    }
+    let _screen_guard = terminal::ScreenGuard(Arc::clone(&modal));
+    pty.resize(content_size(size))?;
+    modal.lock().unwrap().start(size, banner.as_bytes())?;
+    out_tx.push(terminal_size_frame(content_size(size)));
+    out_tx.push(Outgoing::Tty(banner.into_bytes()));
 
     let ws_url = connect.host_websocket_url.clone();
     let remote_pty_tx = pty_tx.clone();
-    thread::spawn(move || websocket_loop(&ws_url, control_rx, out_rx, status_tx, remote_pty_tx));
+    thread::spawn(move || {
+        websocket_loop(
+            &ws_url,
+            control_rx,
+            out_rx,
+            status_tx,
+            remote_pty_tx,
+            shutdown_rx,
+        );
+        let _ = transport_done_tx.send(());
+    });
 
     let pty_out = pty.try_clone()?;
     let pty_done = done_tx.clone();
     let pty_sender = out_tx.clone();
     let pty_modal = Arc::clone(&modal);
+    let replies_tx = pty_tx.clone();
     thread::spawn(move || {
-        let _ = pty_output_loop(pty_out, pty_sender, pty_modal, trace_writer());
+        let _ = pty_output_loop(pty_out, pty_sender, pty_modal, trace_writer(), replies_tx);
         let _ = pty_done.send(());
     });
 
@@ -143,9 +159,8 @@ fn run() -> Result<()> {
     });
 
     let status_modal = Arc::clone(&modal);
-    let status_sender = out_tx.clone();
     thread::spawn(move || {
-        status_loop(status_rx, status_modal, status_sender);
+        status_loop(status_rx, status_modal);
     });
 
     let resize_pty_tx = pty_tx.clone();
@@ -160,9 +175,16 @@ fn run() -> Result<()> {
     });
 
     let _ = done_rx.recv();
+    let _ = shutdown_tx.send(());
+    let _ = modal.lock().unwrap().stop();
     drop(raw_terminal);
     let _ = pty.wait();
-    eprintln!("\nshello-agent: shared shell ended. Remote access is closed.");
+    let _ = transport_done_rx.recv_timeout(std::time::Duration::from_secs(3));
+    eprintln!("\nshello-agent: sharing stopped. Your share link can be reused.");
+    eprintln!("Share URL: {}", connect.viewer_url);
+    if let Ok(command) = connection::reconnect_command(&connect.viewer_url) {
+        eprintln!("Share a new shell using the same link (previous programs are not restored):\n  {command}");
+    }
     Ok(())
 }
 

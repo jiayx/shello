@@ -7,11 +7,12 @@ use std::ptr::{null, null_mut};
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{ReadFile, WriteFile};
 use windows_sys::Win32::System::Console::{
-    ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
-    GetStdHandle, ResizePseudoConsole, SetConsoleCP, SetConsoleMode, SetConsoleOutputCP,
-    CONSOLE_SCREEN_BUFFER_INFO, COORD, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
-    ENABLE_PROCESSED_INPUT, ENABLE_PROCESSED_OUTPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
-    STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    ClosePseudoConsole, CreatePseudoConsole, GetConsoleCP, GetConsoleMode, GetConsoleOutputCP,
+    GetConsoleScreenBufferInfo, GetStdHandle, ResizePseudoConsole, SetConsoleCP, SetConsoleMode,
+    SetConsoleOutputCP, CONSOLE_SCREEN_BUFFER_INFO, COORD, ENABLE_ECHO_INPUT,
+    ENABLE_EXTENDED_FLAGS, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_PROCESSED_OUTPUT,
+    ENABLE_QUICK_EDIT_MODE, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+    HPCON, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
 };
 use windows_sys::Win32::System::Environment::{GetEnvironmentVariableW, SetEnvironmentVariableW};
 use windows_sys::Win32::System::Pipes::CreatePipe;
@@ -72,12 +73,15 @@ pub struct Pty {
 }
 
 impl Pty {
-    pub fn spawn(shell: &str) -> Result<Self> {
+    pub fn spawn(shell: &str, size: TerminalSize) -> Result<Self> {
         unsafe {
             let input = PipePair::new()?;
             let output = PipePair::new()?;
             let mut console: HPCON = 0;
-            let size = COORD { X: 120, Y: 30 };
+            let size = COORD {
+                X: size.cols as i16,
+                Y: size.rows as i16,
+            };
             if CreatePseudoConsole(size, input.read, output.write, 0, &mut console) != 0 {
                 return Err(last_error("CreatePseudoConsole failed"));
             }
@@ -236,13 +240,13 @@ pub struct RawTerminal {
     output: HANDLE,
     output_mode: u32,
     output_active: bool,
+    input_code_page: u32,
+    output_code_page: u32,
 }
 
 impl RawTerminal {
     pub fn enter() -> Result<Self> {
         unsafe {
-            SetConsoleCP(UTF8_CODE_PAGE);
-            SetConsoleOutputCP(UTF8_CODE_PAGE);
             let input = GetStdHandle(STD_INPUT_HANDLE);
             if input == INVALID_HANDLE_VALUE || input.is_null() {
                 return Err(last_error("GetStdHandle stdin failed"));
@@ -251,8 +255,11 @@ impl RawTerminal {
             if GetConsoleMode(input, &mut input_mode) == 0 {
                 return Err(last_error("GetConsoleMode stdin failed"));
             }
-            let raw =
-                input_mode & !ENABLE_ECHO_INPUT & !ENABLE_LINE_INPUT & !ENABLE_PROCESSED_INPUT;
+            let raw = (input_mode | ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS)
+                & !ENABLE_ECHO_INPUT
+                & !ENABLE_LINE_INPUT
+                & !ENABLE_PROCESSED_INPUT
+                & !ENABLE_QUICK_EDIT_MODE;
             if SetConsoleMode(input, raw) == 0 {
                 return Err(last_error("SetConsoleMode stdin failed"));
             }
@@ -268,12 +275,19 @@ impl RawTerminal {
                 output_active = SetConsoleMode(output, vt) != 0;
             }
 
+            let input_code_page = GetConsoleCP();
+            let output_code_page = GetConsoleOutputCP();
+            SetConsoleCP(UTF8_CODE_PAGE);
+            SetConsoleOutputCP(UTF8_CODE_PAGE);
+
             Ok(Self {
                 input,
                 input_mode,
                 output,
                 output_mode,
                 output_active,
+                input_code_page,
+                output_code_page,
             })
         }
     }
@@ -283,6 +297,12 @@ impl Drop for RawTerminal {
     fn drop(&mut self) {
         unsafe {
             SetConsoleMode(self.input, self.input_mode);
+            if self.input_code_page != 0 {
+                SetConsoleCP(self.input_code_page);
+            }
+            if self.output_code_page != 0 {
+                SetConsoleOutputCP(self.output_code_page);
+            }
             if self.output_active {
                 SetConsoleMode(self.output, self.output_mode);
             }

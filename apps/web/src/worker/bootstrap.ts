@@ -21,7 +21,10 @@ SESSION_ID="${sessionId ?? ""}"
 if [ -z "$SESSION_ID" ]; then
   SESSION_ID="\${1:-}"
 fi
-TMP_DIR="\${TMPDIR:-/tmp}/shello"
+TMP_DIR="$(mktemp -d "\${TMPDIR:-/tmp}/shello.XXXXXXXX")"
+trap 'rm -rf "$TMP_DIR"' 0
+trap 'exit 130' INT
+trap 'exit 143' TERM
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
@@ -42,7 +45,6 @@ case "$OS" in
     ;;
 esac
 
-mkdir -p "$TMP_DIR"
 ASSET_NAME="shello-agent-$OS-$ARCH"
 AGENT_PATH="$TMP_DIR/$ASSET_NAME"
 CHECKSUMS_PATH="$TMP_DIR/shello-agent-checksums.txt"
@@ -95,7 +97,7 @@ download_and_verify "$ASSET_NAME" "$AGENT_PATH"
 if [ "$OS" = "linux" ] && ! "$AGENT_PATH" --version >/dev/null 2>&1; then
   PORTABLE_ASSET_NAME="$ASSET_NAME-portable"
   PORTABLE_AGENT_PATH="$TMP_DIR/$PORTABLE_ASSET_NAME"
-  echo "shello-agent: system TLS is unavailable; using the portable TLS fallback." >&2
+  echo "shello-agent: standard binary cannot run; using the static portable fallback." >&2
   download_and_verify "$PORTABLE_ASSET_NAME" "$PORTABLE_AGENT_PATH"
   if ! "$PORTABLE_AGENT_PATH" --version >/dev/null 2>&1; then
     echo "shello-agent portable fallback could not start" >&2
@@ -112,10 +114,11 @@ if [ ! -r "$TTY_DEVICE" ] || [ ! -w "$TTY_DEVICE" ]; then
 fi
 
 if [ -n "$SESSION_ID" ]; then
-  exec "$AGENT_PATH" -server "$SERVER_URL" -session "$SESSION_ID" <"$TTY_DEVICE" >"$TTY_DEVICE" 2>"$TTY_DEVICE"
+  "$AGENT_PATH" -server "$SERVER_URL" -session "$SESSION_ID" <"$TTY_DEVICE" >"$TTY_DEVICE" 2>"$TTY_DEVICE"
+  exit $?
 fi
 
-exec "$AGENT_PATH" -server "$SERVER_URL" <"$TTY_DEVICE" >"$TTY_DEVICE" 2>"$TTY_DEVICE"
+"$AGENT_PATH" -server "$SERVER_URL" <"$TTY_DEVICE" >"$TTY_DEVICE" 2>"$TTY_DEVICE"
 `;
 }
 
@@ -143,13 +146,17 @@ switch ($env:PROCESSOR_ARCHITECTURE.ToLower()) {
   }
 }
 
-$Tmp = Join-Path ([System.IO.Path]::GetTempPath()) "shello"
+$Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("shello-" + [guid]::NewGuid().ToString("N"))
+$PreviousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = "Stop"
+try {
 New-Item -ItemType Directory -Force -Path $Tmp | Out-Null
 $AssetName = "shello-agent-$Os-$Arch.exe"
 $AgentPath = Join-Path $Tmp $AssetName
 $DownloadUrl = "$BinaryBaseUrl/$AssetName"
 $ChecksumsPath = Join-Path $Tmp "shello-agent-checksums.txt"
 
+Add-Type -AssemblyName System.Net.Http
 $HttpHandler = [System.Net.Http.HttpClientHandler]::new()
 $HttpHandler.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
 $HttpClient = [System.Net.Http.HttpClient]::new($HttpHandler)
@@ -194,5 +201,9 @@ if ($Session) {
 
 $AgentProcess = Start-Process -FilePath $AgentPath -ArgumentList $AgentArgs -NoNewWindow -Wait -PassThru
 exit $AgentProcess.ExitCode
+} finally {
+  Remove-Item -LiteralPath $Tmp -Recurse -Force -ErrorAction SilentlyContinue
+  $ErrorActionPreference = $PreviousErrorActionPreference
+}
 `;
 }

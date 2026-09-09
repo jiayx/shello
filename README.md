@@ -76,8 +76,9 @@ the remote-control lease. More detail is in [the architecture guide](docs/archit
 
 The host PTY is the source of truth for terminal dimensions. A viewer never resizes the
 host shell, which preserves full-screen programs, line wrapping, and terminal state
-across viewers. The web client scales its rendered xterm.js terminal to the available
-container and reacts to container, browser-window, and mobile visual-viewport changes.
+across viewers. The web client proportionally enlarges or reduces the complete terminal
+canvas to fit the available space, with centered margins when aspect ratios differ.
+Browser resizing changes only the display scale, not the host PTY dimensions.
 
 Current Chrome, Edge, Firefox, and Safari releases are supported. The client briefly
 stages output until host dimensions arrive, then falls back to a safe terminal size
@@ -98,8 +99,19 @@ production consoles unless that risk is acceptable.
 
 Remote input is disabled by default. Each control request is surfaced in the host's
 real terminal, where <code>Y</code> approves it and <code>N</code>, Return, Ctrl-C, or
-Escape rejects it. Approval pauses remote delivery while the prompt is active, keeping
-host interaction and the decision visible. Shello does not add end-to-end encryption or
+Escape rejects it. A persistent bottom status bar shows view-only sharing, active remote
+control, pending approval, and disconnection. The child shell uses the remaining rows;
+full-screen TUI output continues while approval is pending.
+
+In a normal shared shell, the mouse wheel or trackpad scrolls through up to 10,000
+lines of output from this session. The status bar stays fixed; new output does not
+interrupt scrolling. Scrolling back to the bottom or typing returns to live output.
+Arrow keys retain their normal shell behavior. Full-screen TUI applications retain
+their own terminal input modes. No separate history shortcut is required. Clearing the
+viewport preserves its output in history; an explicit scrollback-clear sequence removes
+history without resetting the live cursor or application modes.
+
+Shello does not add end-to-end encryption or
 identity-based authorization on top of the deployment's HTTPS and Cloudflare access
 controls.
 
@@ -228,7 +240,8 @@ once, then builds these eight release assets:
 - <code>shello-agent-windows-arm64.exe</code>
 
 The standard Linux assets use the system TLS runtime to stay lightweight. The
-portable Linux assets use Rustls and are downloaded only when the standard asset cannot
+portable Linux assets statically link musl and use Rustls, without requiring glibc or
+system OpenSSL. They are downloaded only when the standard asset cannot
 start. Pushing a <code>v*</code> tag additionally bundles those binaries, generates
 <code>checksums.txt</code>, and publishes the GitHub Release. Follow
 [the release guide](docs/releasing.md) for the versioning and verification checklist.

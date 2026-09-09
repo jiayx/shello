@@ -4,12 +4,12 @@ param(
 )
 
 $Root = Split-Path -Parent $PSScriptRoot
-Set-Location "$Root/agent"
+$Manifest = Join-Path $Root "agent/Cargo.toml"
 
 if ($Session) {
-  cargo run -- -server $Server -session $Session
+  cargo run --manifest-path $Manifest -- -server $Server -session $Session
   exit $LASTEXITCODE
 }
 
-cargo run -- -server $Server
+cargo run --manifest-path $Manifest -- -server $Server
 exit $LASTEXITCODE

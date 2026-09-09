@@ -5,7 +5,7 @@ import {
   binarySocketDataToArrayBuffer,
 } from "../protocol";
 
-type SessionState = "idle" | "ready" | "active" | "closed";
+type SessionState = "idle" | "ready" | "active" | "ended" | "closed";
 type SessionRole = "host" | "viewer";
 type HostState = "waiting" | "online" | "reconnecting" | "offline";
 type ViewerInfo = {
@@ -36,6 +36,8 @@ type SessionRecord = {
   maxExpiresAt: number;
   sessionExpiresAt: number;
   hostDisconnectDeadline: number | null;
+  endReason: string | null;
+  generation: number;
 };
 type SocketAttachment =
   | {
@@ -45,6 +47,7 @@ type SocketAttachment =
       role: "viewer";
       viewerId: string;
       viewerToken: string;
+      snapshotRequestId?: string;
     };
 type Env = Record<string, unknown>;
 
@@ -52,7 +55,7 @@ const DEFAULT_CONTROL_LEASE_SECONDS = 30 * 60;
 const SESSION_IDLE_TTL_MS = 2 * 60 * 60 * 1000;
 const SESSION_MAX_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_RENEW_THRESHOLD_MS = 30 * 60 * 1000;
-const HOST_DISCONNECT_GRACE_MS = 60 * 1000;
+const HOST_DISCONNECT_GRACE_MS = 3 * 60 * 1000;
 const PENDING_REQUEST_TIMEOUT_MS = 30 * 1000;
 const REPLAY_BUFFER_MAX_BYTES = 2 * 1024 * 1024;
 const SESSION_RECORD_KEY = "session";
@@ -70,6 +73,8 @@ function createInitialSessionRecord(state: SessionState = "idle"): SessionRecord
     maxExpiresAt: createdAt + SESSION_MAX_TTL_MS,
     sessionExpiresAt: Math.min(createdAt + SESSION_IDLE_TTL_MS, createdAt + SESSION_MAX_TTL_MS),
     hostDisconnectDeadline: null,
+    endReason: null,
+    generation: 0,
   };
 }
 
@@ -90,6 +95,7 @@ export class TTYSession extends DurableObject {
       await this.restoreSessionRecord();
       if (this.restoreSockets()) {
         await this.persistRecord();
+        await this.scheduleNextAlarm();
       }
     });
   }
@@ -133,21 +139,32 @@ export class TTYSession extends DurableObject {
 
   private async acceptSocket(role: SessionRole, request: Request): Promise<Response> {
     await this.advanceRecordAndPersist();
+    if (this.record.state === "closed") {
+      return new Response("session ended", { status: 410 });
+    }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     await this.touchSession();
 
     if (role === "host") {
-      this.host?.close(1012, "replaced by new host");
+      this.host?.close(4001, "replaced by new host");
       server.serializeAttachment({ role });
       this.ctx.acceptWebSocket(server, [role]);
       this.host = server;
       this.hostConnected = true;
       this.hostTerminalSize = null;
       this.hostTerminalProfile = null;
+      this.buffer = [];
+      this.bufferBytes = 0;
       await this.updateRecord((record) => {
         record.hostDisconnectDeadline = null;
+        record.endReason = null;
+        record.generation += 1;
+        record.currentControllerId = null;
+        record.controlLeaseExpiresAt = null;
+        record.pendingRequest = null;
+        record.pendingRequestExpiresAt = null;
         record.state = "active";
       });
     } else {
@@ -156,6 +173,7 @@ export class TTYSession extends DurableObject {
         role,
         viewerId: viewerIdentity.id,
         viewerToken: viewerIdentity.token,
+        snapshotRequestId: crypto.randomUUID(),
       });
       this.ctx.acceptWebSocket(server, [role]);
       const viewer = {
@@ -184,6 +202,15 @@ export class TTYSession extends DurableObject {
         if (!this.sendSocket(server, chunk)) {
           break;
         }
+      }
+    }
+    for (const target of role === "host" ? this.viewers.keys() : [server]) {
+      const attachment = target.deserializeAttachment() as SocketAttachment;
+      if (attachment.role === "viewer") {
+        this.sendHost(JSON.stringify({
+          type: "terminal.snapshot.request",
+          payload: { requestId: attachment.snapshotRequestId },
+        }));
       }
     }
     this.broadcastStatus();
@@ -220,6 +247,7 @@ export class TTYSession extends DurableObject {
 
   private restoreSockets() {
     for (const socket of this.ctx.getWebSockets()) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
       const attachment = socket.deserializeAttachment() as SocketAttachment | null;
       if (!attachment) {
         socket.close(1003, "missing socket attachment");
@@ -228,7 +256,7 @@ export class TTYSession extends DurableObject {
 
       if (attachment.role === "host") {
         if (this.host && this.host !== socket) {
-          socket.close(1012, "replaced by newer host");
+          socket.close(4001, "replaced by newer host");
           continue;
         }
         this.host = socket;
@@ -245,6 +273,14 @@ export class TTYSession extends DurableObject {
       this.replaceViewerConnection(viewer, "replaced by newer viewer");
     }
 
+    if (this.record.state === "closed") {
+      this.finishClosedSession();
+      return false;
+    }
+    if (this.record.state === "ended") {
+      this.finishSharing();
+      return false;
+    }
     if (this.hostConnected && (!this.hostTerminalSize || !this.hostTerminalProfile)) {
       this.requestHostTerminalDetails();
     }
@@ -266,6 +302,11 @@ export class TTYSession extends DurableObject {
     }
 
     if (this.record.state === "active") {
+      this.record.hostDisconnectDeadline ??= Date.now() + HOST_DISCONNECT_GRACE_MS;
+      this.record.currentControllerId = null;
+      this.record.controlLeaseExpiresAt = null;
+      this.record.pendingRequest = null;
+      this.record.pendingRequestExpiresAt = null;
       this.record.state = "ready";
       return true;
     }
@@ -282,7 +323,15 @@ export class TTYSession extends DurableObject {
     this.record = {
       ...record,
       viewerIdentities: record.viewerIdentities ?? {},
+      endReason: record.endReason ?? null,
+      generation: record.generation ?? 0,
     };
+    // Sharing ended under the earlier lifecycle is still a reusable pairing code.
+    if (this.record.state === "closed" &&
+        ["host ended", "host disconnected"].includes(this.record.endReason ?? "") &&
+        Date.now() < this.record.sessionExpiresAt && Date.now() < this.record.maxExpiresAt) {
+      this.record.state = "ended";
+    }
   }
 
   private async resolveViewerIdentity(request: Request) {
@@ -303,7 +352,7 @@ export class TTYSession extends DurableObject {
   }
 
   private async persistRecord() {
-    const record = { ...this.record };
+    const record = structuredClone(this.record);
     const write = this.persistQueue.then(() => this.ctx.storage.put(SESSION_RECORD_KEY, record));
     this.persistQueue = write.catch(() => {});
     await write;
@@ -325,9 +374,35 @@ export class TTYSession extends DurableObject {
       this.broadcastStatus();
     }
 
+    if (this.record.state === "closed") return;
+    if (role === "host" && socket !== this.host) return;
+    if (role === "viewer" && !this.viewers.has(socket)) return;
+
     if (role === "host") {
       if (typeof data === "string") {
         const frame = parseEnvelope(data);
+        if (frame?.type === "session.end") {
+          this.endSharing("host ended");
+          await this.persistRecord();
+          this.sendSocket(socket, JSON.stringify({ type: "session.ended", payload: {} }));
+          this.finishSharing();
+          await this.scheduleNextAlarm();
+          return;
+        }
+        if (frame?.type === "terminal.snapshot") {
+          // Match the connection, not just the viewer identity: a reply for an
+          // older connection must never overwrite a newer refresh.
+          const payload = frame.payload as { requestId?: unknown } | null;
+          if (typeof payload?.requestId !== "string") return;
+          for (const viewer of this.viewers.values()) {
+            const attachment = viewer.socket.deserializeAttachment() as SocketAttachment;
+            if (attachment.role === "viewer" && attachment.snapshotRequestId === payload.requestId) {
+              this.sendViewer(viewer, data);
+              break;
+            }
+          }
+          return;
+        }
         if (frame?.type === "control.approve") {
           await this.handleControlApprove(frame.payload);
           await this.touchSession();
@@ -367,6 +442,7 @@ export class TTYSession extends DurableObject {
         return;
       }
 
+      if (socket !== this.host || !this.hostConnected) return;
       void this.touchSession();
       this.pushBuffer(buffer);
 
@@ -432,12 +508,16 @@ export class TTYSession extends DurableObject {
   private async clearHost() {
     this.host = null;
     this.hostConnected = false;
+    this.hostTerminalSize = null;
+    this.hostTerminalProfile = null;
     await this.updateRecord((record) => {
+      record.currentControllerId = null;
+      record.controlLeaseExpiresAt = null;
+      record.pendingRequest = null;
+      record.pendingRequestExpiresAt = null;
       record.hostDisconnectDeadline = Date.now() + HOST_DISCONNECT_GRACE_MS;
       record.state = "ready";
     });
-    this.hostTerminalSize = null;
-    this.hostTerminalProfile = null;
     this.broadcastStatus();
   }
 
@@ -484,6 +564,7 @@ export class TTYSession extends DurableObject {
       this.record.currentControllerId ||
       this.record.pendingRequest
     ) {
+      this.broadcastStatus();
       return;
     }
 
@@ -555,7 +636,7 @@ export class TTYSession extends DurableObject {
 
   private canWrite(socket: WebSocket) {
     const viewer = this.viewers.get(socket);
-    return viewer?.id === this.record.currentControllerId;
+    return this.record.state === "active" && this.hostConnected && Boolean(viewer) && viewer?.id === this.record.currentControllerId;
   }
 
   private pushBuffer(chunk: ArrayBuffer) {
@@ -595,12 +676,14 @@ export class TTYSession extends DurableObject {
     return {
       role: role ?? null,
       state: this.record.state,
+      endReason: this.record.endReason,
+      generation: this.record.generation,
       hostState: this.hostState(),
       hostConnected: this.hostConnected,
       viewerCount: this.viewers.size,
       viewerId: viewer?.id ?? null,
       viewerToken: viewer?.token ?? null,
-      canWrite: viewer?.id === this.record.currentControllerId,
+      canWrite: this.record.state === "active" && this.hostConnected && Boolean(viewer?.id) && viewer?.id === this.record.currentControllerId,
       controllerViewerId: this.record.currentControllerId,
       controlLeaseExpiresAt: this.record.controlLeaseExpiresAt,
       pendingControlRequest,
@@ -614,7 +697,7 @@ export class TTYSession extends DurableObject {
   }
 
   private hostState(): HostState {
-    if (this.record.state === "closed") {
+    if (this.record.state === "closed" || this.record.state === "ended") {
       return "offline";
     }
     if (this.hostConnected) {
@@ -681,7 +764,7 @@ export class TTYSession extends DurableObject {
       }
 
       this.viewers.delete(socket);
-      socket.close(1012, reason);
+      socket.close(4001, reason);
     }
   }
 
@@ -740,11 +823,11 @@ export class TTYSession extends DurableObject {
       this.record.hostDisconnectDeadline &&
       now >= this.record.hostDisconnectDeadline
     ) {
-      this.closeSession("host disconnected");
+      this.endSharing("host disconnected");
       return true;
     }
 
-    if (this.record.state !== "closed") {
+    if (this.record.state !== "closed" && this.record.state !== "ended") {
       if (this.hostConnected) {
         if (this.record.state !== "active") {
           this.record.state = "active";
@@ -765,8 +848,27 @@ export class TTYSession extends DurableObject {
     const changed = this.advanceRecord();
     if (changed) {
       await this.persistRecord();
+      if (this.record.state === "closed") this.finishClosedSession();
+      else if (this.record.state === "ended") this.finishSharing();
     }
     return changed;
+  }
+
+  private endSharing(reason: string) {
+    this.closeSession(reason);
+    this.record.state = "ended";
+  }
+
+  private finishSharing() {
+    this.hostConnected = false;
+    this.hostTerminalSize = null;
+    this.hostTerminalProfile = null;
+    this.buffer = [];
+    this.bufferBytes = 0;
+    this.broadcastStatus();
+    this.host?.close(4000, this.record.endReason ?? "sharing ended");
+    this.host = null;
+    // Viewers keep watching the pairing code and receive the next host's status.
   }
 
   private closeSession(reason: string) {
@@ -776,20 +878,27 @@ export class TTYSession extends DurableObject {
 
     this.hostConnected = false;
     this.record.state = "closed";
+    this.record.endReason = reason;
     this.record.hostDisconnectDeadline = null;
     this.record.pendingRequest = null;
     this.record.pendingRequestExpiresAt = null;
     this.record.currentControllerId = null;
     this.record.controlLeaseExpiresAt = null;
 
-    if (this.host) {
-      this.host.close(1000, reason);
-      this.host = null;
-    }
-    for (const viewer of this.viewers.values()) {
-      viewer.socket.close(1000, reason);
-    }
+  }
+
+  private finishClosedSession() {
+    this.hostConnected = false;
+    this.broadcastStatus();
+    const reason = this.record.endReason ?? "session ended";
+    this.host?.close(4000, reason);
+    this.host = null;
+    for (const viewer of this.viewers.values()) viewer.socket.close(4000, reason);
     this.viewers.clear();
+    this.buffer = [];
+    this.bufferBytes = 0;
+    this.hostTerminalSize = null;
+    this.hostTerminalProfile = null;
   }
 
   private async touchSession() {
@@ -809,6 +918,10 @@ export class TTYSession extends DurableObject {
   }
 
   private async scheduleNextAlarm() {
+    if (this.record.state === "closed") {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
     const deadlines = [
       this.record.sessionExpiresAt,
       this.record.hostDisconnectDeadline,

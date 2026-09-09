@@ -33,14 +33,20 @@ pub struct Pty {
 }
 
 impl Pty {
-    pub fn spawn(shell: &str) -> Result<Self> {
+    pub fn spawn(shell: &str, size: TerminalSize) -> Result<Self> {
         let mut master = -1;
+        let mut winsize = libc::winsize {
+            ws_row: size.rows,
+            ws_col: size.cols,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
         let child = unsafe {
             libc::forkpty(
                 &mut master,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                &mut winsize,
             )
         };
         if child < 0 {
@@ -48,6 +54,9 @@ impl Pty {
         }
         if child == 0 {
             env::set_var(NESTED_AGENT_ENV, "1");
+            env::set_var("TERM", "xterm-256color");
+            env::remove_var("TERM_PROGRAM");
+            env::remove_var("KITTY_WINDOW_ID");
             let shell = CString::new(shell).unwrap_or_else(|_| CString::new("/bin/sh").unwrap());
             let argv = [shell.as_ptr(), std::ptr::null()];
             unsafe {

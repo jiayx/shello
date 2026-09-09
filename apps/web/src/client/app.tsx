@@ -21,7 +21,7 @@ type SessionInfo = {
 
 type SessionStatus = {
   role: "host" | "viewer" | null;
-  state: "idle" | "ready" | "active" | "closed";
+  state: "idle" | "ready" | "active" | "ended" | "closed";
   hostState: HostState;
   hostConnected: boolean;
   viewerCount: number;
@@ -37,6 +37,8 @@ type SessionStatus = {
   hasPendingControlRequest: boolean;
   sessionExpiresAt: number | null;
   hostDisconnectDeadline: number | null;
+  endReason?: string | null;
+  generation?: number;
   pendingRequestExpiresAt: number | null;
   terminalSize: TerminalSize | null;
   terminalProfile: HostTerminalProfile | null;
@@ -46,14 +48,6 @@ type PlatformTab = "macos" | "linux" | "windows";
 type TransportState = "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 type HostState = "waiting" | "online" | "reconnecting" | "offline";
 type CopyLabel = "Copy" | "Copied" | "Copy failed";
-type FlashPalette = {
-  first: string;
-  firstGlow: string;
-  second: string;
-  secondGlow: string;
-};
-
-const OFFLINE_STATUS_POLL_MS = 3000;
 const TERMINAL_SIZE_FALLBACK_MS = 750;
 const MAX_PENDING_TERMINAL_OUTPUT_BYTES = 4 * 1024 * 1024;
 const MAX_STDIN_FRAME_BYTES = 32 * 1024;
@@ -66,7 +60,6 @@ export function App() {
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const detailsDialogRef = useRef<HTMLDialogElement | null>(null);
   const terminal = useRef<TerminalController | null>(null);
-  const requestControlButtonRef = useRef<HTMLButtonElement | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const inputCleanup = useRef<(() => void) | null>(null);
   const canWriteRef = useRef(false);
@@ -77,6 +70,9 @@ export function App() {
   const [creating, setCreating] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [requestingControl, setRequestingControl] = useState(false);
+  const [showControlHint, setShowControlHint] = useState(false);
+  const [controlHintPulse, setControlHintPulse] = useState(0);
+  const lastControlHintPulse = useRef(0);
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformTab>(() => detectPlatformTab());
   const [statusNote, setStatusNote] = useState<string | null>(null);
   const [shareCopyLabel, setShareCopyLabel] = useState<CopyLabel>("Copy");
@@ -130,12 +126,15 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [statusNote]);
 
+  useEffect(() => { setShowControlHint(false); }, [sessionId]);
+
   useEffect(() => {
     setStatusNote(null);
   }, [sessionStatus?.hostState]);
 
   useEffect(() => {
     canWriteRef.current = Boolean(sessionStatus?.canWrite);
+    if (sessionStatus?.canWrite) setShowControlHint(false);
   }, [sessionStatus?.canWrite]);
 
   useEffect(() => {
@@ -180,12 +179,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    terminal.current?.setCursorVisible(Boolean(sessionStatus?.hostConnected) && transportState === "connected");
+  }, [sessionStatus?.hostConnected, transportState]);
+
+  useEffect(() => {
     if (!sessionId || !terminal.current) {
       return;
     }
 
+    if (!detailsDialogRef.current?.open &&
+        (document.activeElement === document.body || document.activeElement === document.documentElement)) {
+      terminal.current.focus();
+    }
+
     const currentSessionId = sessionId;
     let cancelled = false;
+    let sessionEnded = false;
+    let terminalGeneration: number | undefined;
     let activeSocket: WebSocket | null = null;
     let connectionGeneration = 0;
     let terminalReady = false;
@@ -324,7 +334,6 @@ export function App() {
         applySessionStatus(status);
         setTransportState("closed");
         setConnecting(false);
-        void scheduleOfflineStatusPoll(attempt);
         return;
       }
 
@@ -365,13 +374,23 @@ export function App() {
         }
       });
 
-      ws.addEventListener("close", () => {
+      ws.addEventListener("close", (event) => {
         if (!attempt.ownsSocket(ws)) {
           return;
         }
         activeSocket = null;
         if (socket.current === ws) {
           socket.current = null;
+        }
+        canWriteRef.current = false;
+        setRequestingControl(false);
+        if (sessionEnded || event.code === 4000 || event.code === 4001) {
+          sessionEnded = true;
+          clearReconnectTimer();
+          setConnecting(false);
+          setTransportState("closed");
+          if (event.code === 4001) setStatusNote("This page was replaced by another connection. Refresh to reconnect.");
+          return;
         }
         if (suppressReconnectRef.current) {
           return;
@@ -391,7 +410,6 @@ export function App() {
       inputCleanup.current?.();
       inputCleanup.current = terminal.current?.onData((value) => {
         if (!canWriteRef.current) {
-          flashRequestControlButton();
           return;
         }
         if (sendTerminalInput(ws, value)) {
@@ -406,7 +424,7 @@ export function App() {
     }
 
     async function scheduleReconnect(attempt: ConnectionAttempt) {
-      if (attempt.isStale()) {
+      if (attempt.isStale() || sessionEnded) {
         return;
       }
       clearReconnectTimer();
@@ -428,7 +446,6 @@ export function App() {
         applySessionStatus(status);
         if (status.state === "closed") {
           setTransportState("closed");
-          void scheduleOfflineStatusPoll(attempt);
           return;
         }
 
@@ -446,57 +463,23 @@ export function App() {
       }
     }
 
-    async function scheduleOfflineStatusPoll(attempt: ConnectionAttempt) {
-      if (attempt.isStale()) {
+    function handleControlFrame(frame: Record<string, unknown>) {
+      if (frame.type === "terminal.snapshot") {
+        const payload = frame.payload as { size?: { rows: number; cols: number }; data?: string };
+        if (typeof payload?.data !== "string" || !payload.size) return;
+        terminal.current?.resize(payload.size);
+        flushPendingOutput();
+        // Queue the reset and snapshot with ordinary output so xterm's async
+        // writer cannot apply old chunks after the restored screen.
+        stageTtyOutput(new TextEncoder().encode(payload.data));
         return;
       }
-      clearReconnectTimer();
-      setConnecting(false);
-      setTransportState("closed");
-
-      reconnectTimer.current = window.setTimeout(async () => {
-        if (attempt.isStale()) {
-          return;
-        }
-
-        try {
-          const status = await fetchSessionStatus();
-          if (attempt.isStale()) {
-            return;
-          }
-
-          if (!status) {
-            void scheduleOfflineStatusPoll(attempt);
-            return;
-          }
-
-          applySessionStatus(status);
-          if (status.state !== "closed" || status.hostConnected) {
-            void connectViewer();
-            return;
-          }
-
-          void scheduleOfflineStatusPoll(attempt);
-        } catch (error) {
-          if (error instanceof SessionEndedError) {
-            setStatusNote("Session ended. Refresh or create a new session.");
-            return;
-          }
-          if (!attempt.isStale()) {
-            void scheduleOfflineStatusPoll(attempt);
-          }
-        }
-      }, OFFLINE_STATUS_POLL_MS);
-    }
-
-    function handleControlFrame(frame: Record<string, unknown>) {
       if (frame.type === "session.status") {
         const payload = frame.payload as SessionStatus;
         const previous = previousStatusRef.current;
         if (previous) {
           if (!previous.canWrite && payload.canWrite) {
             setStatusNote(null);
-            terminal.current?.focus();
           } else if (previous.canWrite && !payload.canWrite) {
             setStatusNote(
               payload.controllerViewerId && payload.controllerViewerId !== payload.viewerId
@@ -522,11 +505,36 @@ export function App() {
     }
 
     function applySessionStatus(status: SessionStatus) {
+      if (terminalGeneration !== undefined && status.generation !== undefined && terminalGeneration !== status.generation) {
+        pendingOutput = [];
+        pendingOutputBytes = 0;
+        terminalReady = false;
+        clearTerminalReadyTimer();
+        terminal.current?.write("\x1bc");
+        setStatusNote(null);
+        setShowControlHint(false);
+      }
+      terminalGeneration = status.generation;
+      const controlJustGranted = status.canWrite && !canWriteRef.current;
+      canWriteRef.current = Boolean(status.canWrite) && status.state !== "closed";
+      if (status.state === "closed") {
+        sessionEnded = true;
+        clearReconnectTimer();
+        setConnecting(false);
+        setRequestingControl(false);
+        setTransportState("closed");
+      }
       setSessionStatus(status);
       terminal.current?.setHostTerminalProfile(status.terminalProfile);
       if (status.terminalSize) {
         terminal.current?.resize(status.terminalSize);
         flushPendingOutput();
+      }
+      const pageHasFocus = document.activeElement === document.body ||
+        document.activeElement === document.documentElement;
+      if (socket.current?.readyState === WebSocket.OPEN &&
+          !detailsDialogRef.current?.open && (controlJustGranted || pageHasFocus)) {
+        terminal.current?.focus();
       }
     }
 
@@ -676,8 +684,18 @@ export function App() {
     }
   }
 
+  function revealControlHint() {
+    if (canWriteRef.current) return;
+    setShowControlHint(true);
+    const now = performance.now();
+    if (lastControlHintPulse.current === 0 || now - lastControlHintPulse.current > 1800) {
+      lastControlHintPulse.current = now;
+      setControlHintPulse((pulse) => pulse + 1);
+    }
+  }
+
   function requestControl() {
-    if (socket.current?.readyState !== WebSocket.OPEN || requestingControl) {
+    if (socket.current?.readyState !== WebSocket.OPEN || requestingControl || !canRequestControl) {
       return;
     }
 
@@ -690,49 +708,14 @@ export function App() {
     setRequestingControl(true);
   }
 
-  function flashRequestControlButton() {
-    const button = requestControlButtonRef.current;
-    if (!button) {
-      return;
-    }
-
-    const palette = pickFlashPalette();
-    button.animate(
-      [
-        {
-          transform: "scale(1)",
-          borderColor: "rgba(56, 189, 248, 0.3)",
-          boxShadow: "0 0 0 rgba(56, 189, 248, 0)",
-        },
-        {
-          transform: "scale(1.01)",
-          borderColor: palette.first,
-          boxShadow: `0 0 0 2px ${palette.firstGlow}`,
-        },
-        {
-          transform: "scale(1)",
-          borderColor: palette.second,
-          boxShadow: `0 0 0 3px ${palette.secondGlow}`,
-        },
-        {
-          transform: "scale(1)",
-          borderColor: "rgba(56, 189, 248, 0.3)",
-          boxShadow: "0 0 0 rgba(56, 189, 248, 0)",
-        },
-      ],
-      {
-        duration: 520,
-        easing: "ease-out",
-      },
-    );
-  }
-
-  const modeLabel = sessionStatus?.canWrite ? "Control granted" : "Read-only";
+  const modeLabel = transportState === "closed" || sessionStatus?.state === "ended" ? "Sharing ended"
+    : sessionStatus?.canWrite && transportState === "connected" ? "Control granted" : "Read-only";
   const leaseLabel = formatDeadline(sessionStatus?.controlLeaseExpiresAt ?? null, now);
   const sessionExpiryLabel = formatDeadline(sessionStatus?.sessionExpiresAt ?? null, now);
   const connectionLabel = transportLabel(transportState);
   const canRequestControl =
     Boolean(sessionId) &&
+    transportState === "connected" &&
     sessionStatus?.hostState === "online" &&
     !sessionStatus?.canWrite &&
     !sessionStatus?.hasPendingControlRequest &&
@@ -759,13 +742,19 @@ export function App() {
   let accessDescription =
     "Viewers are read-only by default. Request control to type into the host shell.";
   if (transportState === "closed" || sessionStatus?.hostState === "offline") {
-    accessDescription = "Session ended. Create a new session to continue.";
+    accessDescription = sessionStatus?.endReason === "host ended"
+      ? "The host ended sharing."
+      : sessionStatus?.endReason === "host disconnected"
+        ? "The host did not reconnect within 3 minutes. This link is still available for reconnection."
+        : statusNote ?? "Session ended. Create a new session to continue.";
   } else if (transportState === "error" || transportState === "reconnecting") {
     accessDescription = "Connection lost. Reconnecting...";
   } else if (transportState === "connecting") {
     accessDescription = "Connecting to the session...";
   } else if (sessionStatus?.hostState === "reconnecting") {
-    accessDescription = "Host disconnected. Waiting for the host to reconnect.";
+    const remaining = Math.max(0, Math.ceil(((sessionStatus.hostDisconnectDeadline ?? now) - now) / 1000));
+    const countdown = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
+    accessDescription = t("Host disconnected. Waiting for reconnection ({time} remaining).", { time: countdown });
   } else if (statusNote) {
     accessDescription = statusNote;
   } else if (sessionStatus?.canWrite) {
@@ -779,6 +768,18 @@ export function App() {
   } else if (sessionStatus?.hostState === "waiting") {
     accessDescription = "Waiting for the host to connect.";
   }
+
+  const statusTone =
+    transportState === "closed" || sessionStatus?.hostState === "offline" ? "neutral"
+      : transportState === "error" || transportState === "reconnecting" || sessionStatus?.hostState === "reconnecting" ? "attention"
+      : transportState !== "connected" || sessionStatus?.hostState === "waiting" ? "neutral"
+      : statusNote ? "neutral"
+      : sessionStatus?.canWrite ? "control"
+      : requestingControl || sessionStatus?.hasPendingControlRequest ? "attention"
+      : sessionStatus?.controllerViewerId ? "control"
+      : "ready";
+  const connectionTone = transportState === "connected" ? "ready"
+    : transportState === "reconnecting" || transportState === "error" ? "attention" : "neutral";
 
   const showSetup = !sessionId || sessionStatus?.hostState === "waiting";
 
@@ -815,7 +816,7 @@ export function App() {
           <img src="/logo.svg" alt="" className="h-7 w-7" />
           <h1 className="text-base font-semibold tracking-tight text-amber-400">Shello</h1>
         </a>
-        <span className="text-xs text-stone-400" role="status">{t(connectionLabel)}</span>
+        <span className="workspace-connection text-xs" data-tone={connectionTone} role="status">{t(connectionLabel)}</span>
         <span className="hidden text-xs text-stone-500 sm:inline">{sessionId || t("One command. Share your shell.")}</span>
         <div className="workspace-actions">
           <button className="workspace-button" title={sessionId ? t("Create a session in a new tab") : t("Create session")} onClick={handleCreateSessionClick} onAuxClick={(event) => {
@@ -823,7 +824,7 @@ export function App() {
           }} disabled={creating}>{t(createSessionLabel)}</button>
           {sessionId && <>
             <button className="workspace-button" onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel === "Copy" ? t("Copy link") : t(shareCopyLabel)}</button>
-            <button ref={requestControlButtonRef} className="workspace-button control-button" onClick={requestControl} disabled={!canRequestControl || requestingControl}>{t(requestControlLabel)}</button>
+            <button className="workspace-button control-button" data-guided={showControlHint && !sessionStatus?.canWrite && canRequestControl && !requestingControl} data-tone={statusTone} onClick={requestControl} disabled={!canRequestControl || requestingControl}>{t(requestControlLabel)}</button>
             <button className="workspace-button" aria-expanded={detailsOpen} aria-controls="session-details" aria-haspopup="dialog" onClick={() => setDetailsOpen(!detailsOpen)}>{detailsOpen ? t("Hide details") : t("Session details")}</button>
           </>}
         </div>
@@ -850,7 +851,32 @@ export function App() {
       </dialog>
 
       <section className="workspace-terminal" aria-label={t("Shared terminal")}>
-        <div ref={terminalRef} className="absolute inset-0 overflow-hidden" />
+        <div ref={terminalRef} className="absolute inset-0 overflow-hidden"
+          onKeyDownCapture={(event) => {
+            if (event.nativeEvent.isComposing || event.key === "Process") return;
+            if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+            if (event.key.length === 1 || ["Enter", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+              revealControlHint();
+            }
+          }}
+          onCompositionStart={revealControlHint}
+        />
+        {showControlHint && !sessionStatus?.canWrite && !showSetup && (
+          <>
+          <div key={controlHintPulse} className="terminal-access-glow" aria-hidden="true" />
+          <div className="terminal-control-hint">
+            <span className="control-hint-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg></span>
+            <div className="control-hint-copy" role="status" aria-live="polite" aria-atomic="true">
+              <strong>{t(requestingControl || sessionStatus?.pendingControlRequest ? "Waiting for control approval" : "This terminal is read-only")}</strong>
+              <p>{t(canRequestControl && !requestingControl
+                ? "Request control before typing. Your input has not been sent."
+                : accessDescription)}</p>
+            </div>
+            {canRequestControl && !requestingControl && <button className="workspace-button control-hint-action" onClick={requestControl}>{t("Request control")}</button>}
+            <button className="workspace-button control-hint-dismiss" aria-label={t("Dismiss reminder")} onClick={() => { setShowControlHint(false); terminal.current?.focus(); }}>×</button>
+          </div>
+          </>
+        )}
         {showSetup && <div className="workspace-setup">
           <div className="setup-content">
             <p className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-amber-400">{t("Your shell, shared.")}</p>
@@ -862,8 +888,8 @@ export function App() {
         </div>}
       </section>
 
-      <footer className="workspace-status">
-        <span className="shrink-0 text-stone-300">{connecting ? t("Connecting") : t(modeLabel)}</span>
+      <footer className="workspace-status" data-tone={statusTone}>
+        <span className="workspace-status-label shrink-0">{connecting ? t("Connecting") : t(modeLabel)}</span>
         <p className="min-w-0 flex-1" role="status">{t(accessDescription)}</p>
         <span className="hidden shrink-0 sm:inline">{t("{count} viewers", { count: sessionStatus?.viewerCount ?? 0 })}</span>
       </footer>
@@ -1083,38 +1109,22 @@ function formatDeadline(timestamp: number | null, now: number) {
 function transportLabel(value: string) {
   switch (value) {
     case "connected":
-      return "Live";
+      return "Server connected";
     case "connecting":
-      return "Connecting";
+      return "Connecting to server";
     case "reconnecting":
-      return "Reconnecting";
+      return "Reconnecting to server";
     case "closed":
-      return "Offline";
+      return "Server disconnected";
     case "error":
-      return "Connection issue";
+      return "Server connection issue";
     default:
-      return "Idle";
+      return "Server disconnected";
   }
 }
 
 function shouldRetrySessionStatus(response: Response) {
   return response.status === 429 || response.status >= 500;
-}
-
-function pickFlashPalette(): FlashPalette {
-  const firstHue = Math.floor(Math.random() * 360);
-  const firstSaturation = Math.floor(Math.random() * 101);
-  const firstLightness = 35 + Math.floor(Math.random() * 41);
-  const secondHue = Math.floor(Math.random() * 360);
-  const secondSaturation = Math.floor(Math.random() * 101);
-  const secondLightness = 35 + Math.floor(Math.random() * 41);
-
-  return {
-    first: `hsl(${firstHue} ${firstSaturation}% ${firstLightness}%)`,
-    firstGlow: `hsl(${firstHue} ${firstSaturation}% ${firstLightness}% / 0.22)`,
-    second: `hsl(${secondHue} ${secondSaturation}% ${secondLightness}%)`,
-    secondGlow: `hsl(${secondHue} ${secondSaturation}% ${secondLightness}% / 0.18)`,
-  };
 }
 
 function parseControlFrame(value: string): Record<string, unknown> | null {

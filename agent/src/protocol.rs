@@ -13,8 +13,16 @@ pub(crate) struct ControlRequest {
     pub(crate) lease_seconds: i32,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub(crate) struct SessionStatus {
+    #[serde(skip)]
+    pub(crate) connected: bool,
+    #[serde(skip)]
+    pub(crate) ended: bool,
+    #[serde(rename = "viewerCount", default)]
+    pub(crate) viewer_count: usize,
+    #[serde(rename = "controllerViewerId", default)]
+    pub(crate) controller_viewer_id: Option<String>,
     #[serde(rename = "pendingControlRequest")]
     pub(crate) pending_control_request: Option<ControlRequest>,
 }
@@ -38,6 +46,8 @@ pub(crate) enum PtyInput {
 pub(crate) enum TerminalRequest {
     Profile,
     Size,
+    Snapshot(String),
+    Ended,
 }
 
 pub(crate) fn terminal_profile_text() -> String {

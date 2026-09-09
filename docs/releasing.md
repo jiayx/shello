@@ -85,7 +85,7 @@ The <code>v*</code> tag triggers
 
 1. runs formatting, clippy, and release tests on Ubuntu;
 2. runs native clippy and tests on macOS ARM64 and Windows AMD64;
-3. builds six standard target binaries plus two portable Rustls Linux fallbacks; and
+3. builds six standard target binaries plus two static musl/Rustls Linux fallbacks; and
 4. extracts the matching CHANGELOG section, generates <code>checksums.txt</code>,
    creates the GitHub Release, and uploads every binary.
 

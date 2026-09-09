@@ -135,13 +135,13 @@ jobs:
             asset: shello-agent-linux-arm64
           - id: linux-amd64-portable
             runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
             tls: rustls-tls
             ext: ""
             asset: shello-agent-linux-amd64-portable
           - id: linux-arm64-portable
             runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-musl
             tls: rustls-tls
             ext: ""
             asset: shello-agent-linux-arm64-portable
@@ -169,13 +169,29 @@ jobs:
         with:
           workspaces: agent
 
+      - name: Install native musl toolchain
+        if: contains(matrix.target, 'linux-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: Build release agent
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           cd agent
+          if [[ "${{ matrix.target }}" == *linux-musl ]]; then
+            export CC=musl-gcc
+            export RUSTFLAGS="-C linker=musl-gcc -C target-feature=+crt-static"
+          fi
           cargo build --locked --release --target "${{ matrix.target }}" --no-default-features --features "${{ matrix.tls }}"
+          if [[ "${{ matrix.target }}" == *linux-musl ]]; then
+            binary="target/${{ matrix.target }}/release/shello-agent"
+            "$binary" --version
+            if readelf -l "$binary" | grep -q INTERP || readelf -d "$binary" | grep -q NEEDED; then
+              echo "Portable Agent must be statically linked" >&2
+              exit 1
+            fi
+          fi
           cp "target/${{ matrix.target }}/release/shello-agent${{ matrix.ext }}" "../dist/${{ matrix.asset }}"
 
       - uses: actions/upload-artifact@v7

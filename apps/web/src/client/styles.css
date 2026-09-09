@@ -20,6 +20,9 @@ body {
 }
 
 .terminal-workspace {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   height: 100dvh;
@@ -81,16 +84,139 @@ body {
 .session-fields { display: grid; gap: 20px; }
 .copy-field { display: flex; align-items: center; gap: 8px; padding: 8px; background: #0c0a09; border: 1px solid #44403c; border-radius: 9px; }
 .copy-field code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 4px; font-size: 13px; }
-.workspace-terminal { position: relative; flex: 1; min-height: 0; min-width: 0; }
+.workspace-terminal { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .workspace-setup { position: absolute; inset: 0; display: flex; overflow: auto; padding: 24px; background: #111111; }
 .setup-content { width: 100%; max-width: 660px; margin: auto; }
 .start-button { margin-top: 28px; padding: 10px 18px; background: #fbbf24; border-color: #fbbf24; color: #1c1917; font-size: 14px; font-weight: 600; }
 .start-button:hover:not(:disabled) { background: #fcd34d; border-color: #fcd34d; }
 .workspace-status { display: flex; flex: none; align-items: center; gap: 16px; padding: 6px 16px; border-top: 1px solid #292524; background: #141211; color: #a8a29e; font-size: 11px; }
+/* Status semantics: teal = viewing, blue = control, amber = attention, gray = neutral. */
+[data-tone="ready"] { --status-accent: #99d1c3; --status-surface: #142723; }
+[data-tone="control"] { --status-accent: #a6ccec; --status-surface: #14212c; }
+[data-tone="attention"] { --status-accent: #e8ce96; --status-surface: #292314; }
+[data-tone="neutral"] { --status-accent: #b9b5b1; --status-surface: #141211; }
+.workspace-status { background: var(--status-surface, #141211); }
+.workspace-status-label, .workspace-connection { color: var(--status-accent, #b9b5b1); }
+.workspace-status-label { display: inline-flex; align-items: center; gap: 7px; }
+.workspace-status-label::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.control-button[data-tone="control"], .control-button[data-tone="attention"] {
+  color: var(--status-accent); background: var(--status-surface); border-color: var(--status-accent);
+}
+.control-button:disabled[data-tone="control"], .control-button:disabled[data-tone="attention"] { opacity: .85; }
 @media (max-width: 640px) {
   .workspace-toolbar { padding: 8px; gap: 8px; }
   .workspace-actions { flex-basis: 100%; margin-left: 0; }
   .workspace-details .session-fields { grid-template-columns: minmax(0, 1fr); }
   .workspace-setup { padding: 20px; }
   .workspace-status { padding: 6px 8px; gap: 8px; max-height: 20dvh; overflow: auto; }
+}
+
+/* Keep the visual thumb slim even when the host terminal canvas is enlarged.
+   The original slider remains the full-size drag target. */
+.shello-terminal-viewport .xterm-scrollable-element > .scrollbar.vertical > .slider::before {
+  content: "";
+  position: absolute;
+  top: calc(2px / var(--terminal-scale, 1));
+  bottom: calc(2px / var(--terminal-scale, 1));
+  left: 50%;
+  width: min(100%, calc(5px / var(--terminal-scale, 1)));
+  transform: translateX(-50%);
+  border-radius: calc(4px / var(--terminal-scale, 1));
+  background: #a8a29e45;
+  pointer-events: none;
+  transition: background-color 140ms ease, width 140ms ease;
+}
+.shello-terminal-viewport .xterm-scrollable-element > .scrollbar.vertical > .slider:hover::before {
+  width: min(100%, calc(7px / var(--terminal-scale, 1)));
+  background: #a8a29e80;
+}
+.shello-terminal-viewport .xterm-scrollable-element > .scrollbar.vertical > .slider.active::before {
+  background: #d6d3d1a6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shello-terminal-viewport .xterm-scrollable-element > .scrollbar.vertical > .slider::before { transition: none; }
+}
+
+.terminal-control-hint {
+  position: absolute;
+  z-index: 2;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #e8ce964d;
+  border-radius: 12px;
+  background: #211e17f2;
+  backdrop-filter: blur(16px);
+  color: #f5e5c4;
+  box-shadow: 0 8px 32px #0008, 0 0 24px #e8ce9610;
+}
+.control-hint-icon { font-size: 24px; color: #e8ce96; }
+.control-hint-copy { min-width: 0; }
+.control-hint-copy strong { display: block; font-size: 14px; }
+.control-hint-copy p { margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: #d2c4a7; }
+.control-hint-action { background: #e8ce96; border-color: #e8ce96; color: #292314; font-weight: 600; }
+.control-hint-action:hover:not(:disabled) { background: #f5dfb0; border-color: #f5dfb0; }
+.control-hint-dismiss { align-self: flex-start; padding: 0 5px; border-color: transparent; font-size: 20px; color: #d2c4a7; }
+@media (max-width: 640px) {
+  .terminal-control-hint { bottom: 12px; gap: 10px; flex-wrap: wrap; width: calc(100% - 24px); max-width: none; }
+  .control-hint-icon { display: none; }
+  .control-hint-copy { flex: 1; }
+  .control-hint-action { order: 2; width: 100%; padding: 10px; }
+}
+
+/* A single, soft amber glow links blocked input to the control action. */
+.terminal-access-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 12px;
+  border: 1px solid #e8ce9699;
+  box-shadow: inset 0 0 24px #e8ce9640, inset 0 -30px 100px #c6973026;
+  background: radial-gradient(ellipse at 50% 110%, #e8ce962e, transparent 65%);
+  animation: terminal-access-glow 1600ms ease-out both;
+}
+.control-button[data-guided="true"] {
+  border-color: #e8ce96;
+  color: #f5e5c4;
+  background: #e8ce9620;
+  box-shadow: 0 0 0 3px #e8ce9612, 0 0 22px #e8ce9638;
+}
+
+.control-hint-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #e8ce9614;
+  box-shadow: 0 0 20px #e8ce961a;
+}
+@keyframes terminal-access-glow {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminal-access-glow { animation: none; opacity: .2; }
+}
+@media (max-width: 640px) {
+  .control-hint-icon { display: none; }
+}
+
+/* Override xterm's generated cursor rules, including its non-blinking block. */
+.shello-terminal-viewport[data-cursor-hidden="true"] .xterm .xterm-rows > div > span.xterm-cursor {
+  animation: none !important;
+  background-color: transparent !important;
+  color: inherit !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-bottom: none !important;
 }
