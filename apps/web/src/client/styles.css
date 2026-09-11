@@ -106,6 +106,7 @@ body {
 @media (max-width: 640px) {
   .workspace-toolbar { padding: 8px; gap: 8px; }
   .workspace-actions { flex-basis: 100%; margin-left: 0; }
+  .workspace-toolbar[data-home="true"] .workspace-actions { display: none; }
   .workspace-details .session-fields { grid-template-columns: minmax(0, 1fr); }
   .workspace-setup { padding: 20px; }
   .workspace-status { padding: 6px 8px; gap: 8px; max-height: 20dvh; overflow: auto; }

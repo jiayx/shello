@@ -877,7 +877,7 @@ export function App() {
 
   return (
     <main className="terminal-workspace">
-      <header className="workspace-toolbar">
+      <header className="workspace-toolbar" data-home={!sessionId}>
         <a href="/" aria-label={`Shello · ${t("Go home")}`} title={t("Go home")} className="flex shrink-0 items-center gap-2 rounded-md transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-400">
           <img src="/logo.svg" alt="" className="h-7 w-7" />
           <h1 className="text-base font-semibold tracking-tight text-amber-400">Shello</h1>
