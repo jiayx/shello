@@ -5,6 +5,7 @@ const preferredLanguage = typeof navigator === "undefined"
 export const locale = /^zh(?:-|$)/i.test(preferredLanguage) ? "zh-CN" : "en";
 
 const chinese: Record<string, string> = {
+  "Session actions": "会话操作",
   "Join sharing": "加入共享",
   "Join": "加入",
   "Joining...": "正在加入…",

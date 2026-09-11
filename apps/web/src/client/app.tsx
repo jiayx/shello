@@ -875,25 +875,42 @@ export function App() {
     </div>
   );
 
+  const sessionActions = (
+    <>
+      <button className="workspace-button" title={sessionId ? t("Create a session in a new tab") : t("Create session")} onClick={handleCreateSessionClick} onAuxClick={(event) => {
+        if (event.button === 1) { event.preventDefault(); void createSession({ openInNewTab: true }); }
+      }} disabled={creating || joining}>{t(createSessionLabel)}</button>
+      {sessionId && <>
+        <button className="workspace-button" onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel === "Copy" ? t("Copy link") : t(shareCopyLabel)}</button>
+        <button className="workspace-button control-button" data-guided={showControlHint && !sessionStatus?.canWrite && canRequestControl && !requestingControl} data-tone={statusTone} onClick={sessionStatus?.canWrite ? releaseControl : requestControl} disabled={transportState !== "connected" || (!sessionStatus?.canWrite && (!canRequestControl || requestingControl))}>{t(requestControlLabel)}</button>
+        <button className="workspace-button" aria-expanded={detailsOpen} aria-controls="session-details" aria-haspopup="dialog" onClick={() => setDetailsOpen(!detailsOpen)}>{detailsOpen ? t("Hide details") : t("Session details")}</button>
+      </>}
+    </>
+  );
+
   return (
     <main className="terminal-workspace">
-      <header className="workspace-toolbar" data-home={!sessionId}>
+      <header className="workspace-toolbar">
         <a href="/" aria-label={`Shello · ${t("Go home")}`} title={t("Go home")} className="flex shrink-0 items-center gap-2 rounded-md transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-400">
           <img src="/logo.svg" alt="" className="h-7 w-7" />
           <h1 className="text-base font-semibold tracking-tight text-amber-400">Shello</h1>
         </a>
         {sessionId && <span className="workspace-connection text-xs" data-tone={connectionTone} role="status">{t(connectionLabel)}</span>}
         {sessionId ? <button className="workspace-button font-mono" title={t("Copy pairing code")} aria-label={t("Copy pairing code")} onClick={() => void handleCopy(sessionId, setCodeCopyLabel, codeCopyTimerRef)}>{codeCopyLabel === "Copy" ? sessionId : t(codeCopyLabel)}</button> : <span className="hidden text-xs text-stone-500 sm:inline">{t("One command. Share your shell.")}</span>}
-        <div className="workspace-actions">
-          <button className="workspace-button" title={sessionId ? t("Create a session in a new tab") : t("Create session")} onClick={handleCreateSessionClick} onAuxClick={(event) => {
-            if (event.button === 1) { event.preventDefault(); void createSession({ openInNewTab: true }); }
-          }} disabled={creating || joining}>{t(createSessionLabel)}</button>
-          {sessionId && <>
-            <button className="workspace-button" onClick={() => void handleCopy(shareUrl, setShareCopyLabel, shareCopyTimerRef)}>{shareCopyLabel === "Copy" ? t("Copy link") : t(shareCopyLabel)}</button>
-            <button className="workspace-button control-button" data-guided={showControlHint && !sessionStatus?.canWrite && canRequestControl && !requestingControl} data-tone={statusTone} onClick={sessionStatus?.canWrite ? releaseControl : requestControl} disabled={transportState !== "connected" || (!sessionStatus?.canWrite && (!canRequestControl || requestingControl))}>{t(requestControlLabel)}</button>
-            <button className="workspace-button" aria-expanded={detailsOpen} aria-controls="session-details" aria-haspopup="dialog" onClick={() => setDetailsOpen(!detailsOpen)}>{detailsOpen ? t("Hide details") : t("Session details")}</button>
-          </>}
-        </div>
+        <div className="workspace-actions">{sessionActions}</div>
+        {sessionId && <>
+          <button type="button" className="workspace-button mobile-menu-trigger"
+            popoverTarget="mobile-session-actions" aria-label={t("Session actions")}
+            data-guided={showControlHint && !sessionStatus?.canWrite && canRequestControl && !requestingControl}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+          </button>
+          <div id="mobile-session-actions" popover="auto" className="mobile-session-actions" aria-label={t("Session actions")}
+            onClick={(event) => {
+              if ((event.target as HTMLElement).closest("button:not(:disabled)")) event.currentTarget.hidePopover();
+            }}>
+            {sessionActions}
+          </div>
+        </>}
       </header>
 
       <dialog ref={detailsDialogRef} id="session-details" className="workspace-details" aria-labelledby="session-details-title"

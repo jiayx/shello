@@ -104,8 +104,14 @@ fn run() -> Result<()> {
     } else {
         "Exit the shared shell with Ctrl-D or 'exit'."
     };
+    let pairing_code = connect.viewer_url.rsplit('/').next().unwrap_or_default();
+    let pairing_hint = if cli::validate_session_id(pairing_code).is_ok() {
+        format!("Pairing code: {pairing_code}\r\n")
+    } else {
+        String::new()
+    };
     let banner = format!(
-        "shello-agent v{AGENT_VERSION}\r\nshello-agent: shared shell is active.\r\nShare URL: {}\r\n{exit_hint}\r\n\r\n",
+        "shello-agent v{AGENT_VERSION}\r\nshello-agent: shared shell is active.\r\nShare URL: {}\r\n{pairing_hint}{exit_hint}\r\n\r\n",
         connect.viewer_url
     );
 
