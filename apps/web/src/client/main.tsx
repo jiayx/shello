@@ -2,6 +2,7 @@ import { t, locale } from "./i18n";
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./app";
+import { initAnalytics } from "./analytics";
 import { ReplayDebug } from "./replay-debug";
 import "./styles.css";
 
@@ -54,6 +55,8 @@ function NotFound() {
 document.documentElement.lang = locale;
 document.title = t("Shello — Live terminal sharing");
 document.querySelector('meta[name="description"]')?.setAttribute("content", t("Share your local shell with one command. No manual installation. Viewers join in a browser and request control with host approval."));
+
+initAnalytics();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
