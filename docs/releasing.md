@@ -24,25 +24,6 @@ Configuration lives in [wrangler.jsonc](../apps/web/wrangler.jsonc):
 The bootstrap uses the configured repository's latest release. Custom asset locations
 use `BOOTSTRAP_BINARY_BASE_URL` and `BOOTSTRAP_CHECKSUMS_URL`.
 
-### Google Analytics
-
-The client loads GA4 only in production builds with a nonempty
-`VITE_GA_MEASUREMENT_ID`. The public measurement ID is configured in
-`apps/web/.env.production`; override it at build time for another deployment, or
-set it to an empty value to disable analytics. Vite embeds this value in the client
-bundle, so changing a Worker runtime variable does not change the ID.
-
-`apps/web/src/client/analytics.ts` owns initialization and custom event reporting.
-GA automatically reports the initial pageview. Keep **Page changes based on browser
-history events** enabled in the web data stream's Enhanced Measurement settings
-so GA also tracks SPA navigation. The application does not manually send
-`page_view` events or override page URLs and referrers; session paths are reported
-as-is. No changes to the shared data stream settings are required.
-
-Use `trackEvent(name, parameters)` for custom aggregate metadata, never terminal
-content, tokens, or pairing codes. See Google's
-[pageview documentation](https://developers.google.com/analytics/devguides/collection/ga4/views).
-
 ## Agent releases
 
 The package version in `agent/Cargo.toml` matches the Git tag without its `v` prefix.
